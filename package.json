@@ -1,4 +1,5 @@
-"name": "bi-weekly-staff-rota",
+{
+  "name": "bi-weekly-staff-rota",
   "private": true,
   "version": "0.0.0",
   "type": "module",
