@@ -254,10 +254,10 @@ export default function App() {
       </header>
 
       {/* Main Dual-Pane Dashboard Layout with white (#FFFFFF) background & black (#000000) text */}
-      <main className="flex-1 flex flex-col lg:flex-row min-h-0 select-none overflow-y-auto lg:overflow-hidden relative bg-white text-black">
+      <main className="flex-1 flex flex-col md:flex-row min-h-0 select-none overflow-y-auto md:overflow-hidden relative bg-white text-black">
         
         {/* Left Side: Interactive Scrollable Calendar */}
-        <section className="w-full lg:w-[53%] h-auto lg:h-full flex flex-col overflow-visible lg:overflow-hidden bg-white shrink-0">
+        <section className="w-full md:w-[53%] h-auto md:h-full flex flex-col overflow-visible md:overflow-hidden bg-white shrink-0">
           <CalendarSection
             selectedDateStr={selectedDateStr}
             onSelectDate={handleSelectDate}
@@ -273,7 +273,7 @@ export default function App() {
         </section>
 
         {/* Right Side: Multi-Shift Operator panel and quick shift template form */}
-        <section className="w-full lg:w-[47%] h-auto lg:h-full flex flex-col bg-white overflow-visible lg:overflow-hidden relative border-t lg:border-t-0 lg:border-l border-slate-200 shrink-0">
+        <section className="w-full md:w-[47%] h-auto md:h-full flex flex-col bg-white overflow-visible md:overflow-hidden relative border-t md:border-t-0 md:border-l border-slate-200 shrink-0">
           <ShiftDetailsController
             selectedDateStr={selectedDateStr}
             shifts={shifts}
