@@ -16,7 +16,6 @@ import {
   formatDateString,
   parseDateString,
   getDayShiftConfig,
-  MAX_ROSTER_SIZE,
 } from './utils/rotaUtils';
 
 export default function App() {
@@ -99,12 +98,7 @@ export default function App() {
 
   // Add new staff member to roster
   const handleAddStaff = (newStaff: Staff) => {
-    setStaff((prevStaff) => {
-      if (prevStaff.length >= MAX_ROSTER_SIZE) {
-        return prevStaff;
-      }
-      return [...prevStaff, newStaff];
-    });
+    setStaff((prevStaff) => [...prevStaff, newStaff]);
   };
 
   // Update staff member properties (Hourly rate or manual adjustment)
@@ -204,7 +198,7 @@ export default function App() {
   return (
     <IPhoneShell>
       {/* Rota App Navigation Bar */}
-      <header className="h-10 px-4 bg-neutral-950 border-b border-neutral-900 flex items-center justify-between select-none flex-shrink-0 z-20">
+      <header className="h-10 px-4 bg-slate-900 border-b border-slate-850 flex items-center justify-between select-none flex-shrink-0 z-20">
         <div className="flex items-center gap-2">
           {/* Custom iOS-themed Calendar Spark Logo */}
           <div className="w-5.5 h-5.5 rounded-lg bg-red-500 flex flex-col items-center justify-center text-white scale-90 relative shadow-sm">
@@ -212,20 +206,20 @@ export default function App() {
             <span className="text-[10px] font-extrabold leading-none pb-0.5">20</span>
           </div>
           <div>
-            <h1 className="text-xs font-extrabold text-neutral-100 tracking-tight leading-none">
+            <h1 className="text-xs font-extrabold text-white tracking-tight leading-none">
               Employee Rota Scheduling
             </h1>
-            <p className="text-[8px] text-neutral-400 font-medium">Landscape Multi-Shift Organizer</p>
+            <p className="text-[8px] text-slate-300 font-medium">Landscape Multi-Shift Organizer</p>
           </div>
         </div>
 
         {/* Operating status badge */}
-        <div className="hidden sm:flex items-center gap-1.5 bg-neutral-900 border border-neutral-800/80 px-2 py-0.5 rounded-md">
-          <Clock className="w-3 h-3 text-neutral-400" />
-          <span className="text-[9px] text-neutral-300 font-sans">
+        <div className="hidden sm:flex items-center gap-1.5 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-md">
+          <Clock className="w-5 h-5 text-brand-gold" />
+          <span className="text-[9px] text-slate-200 font-sans">
             {dayShiftRules.isOpen ? (
               <span>
-                Standard hours: <strong className="text-blue-400 font-bold">{dayShiftRules.morning.start} - 19:00</strong>
+                Standard hours: <strong className="text-brand-gold font-bold">{dayShiftRules.morning.start} - 19:00</strong>
               </span>
             ) : (
               <span className="text-red-400 font-semibold uppercase tracking-wider text-[8px]">Closed today</span>
@@ -234,17 +228,17 @@ export default function App() {
         </div>
 
         {/* Live Active Role Simulation Switcher */}
-        <div className="flex items-center gap-1 bg-neutral-900 border border-neutral-800/85 px-2 py-1 rounded-lg">
-          <span className="text-[8px] text-neutral-400 font-black uppercase tracking-wider hidden md:inline">Simulation Role:</span>
+        <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 px-2 py-1 rounded-lg">
+          <span className="text-[8px] text-slate-300 font-black uppercase tracking-wider hidden md:inline">Simulation Role:</span>
           <select
             value={userRole}
             onChange={(e) => setUserRole(e.target.value as UserRole)}
             id="simulation-role-switcher"
-            className="bg-transparent border-none text-[10px] font-extrabold text-blue-400 focus:outline-none cursor-pointer outline-none"
+            className="bg-transparent border-none text-[10px] font-extrabold text-brand-gold focus:outline-none cursor-pointer outline-none"
           >
-            <option value="Admin" className="bg-neutral-950 text-neutral-200">🔑 Admin</option>
-            <option value="General Manager" className="bg-neutral-950 text-neutral-200">💼 Gen Manager</option>
-            <option value="Regular Staff" className="bg-neutral-950 text-neutral-200">👥 Regular Staff</option>
+            <option value="Admin" className="bg-slate-900 text-neutral-200">🔑 Admin</option>
+            <option value="General Manager" className="bg-slate-900 text-neutral-200">💼 Gen Manager</option>
+            <option value="Regular Staff" className="bg-slate-900 text-neutral-200">👥 Regular Staff</option>
           </select>
         </div>
 
@@ -252,10 +246,10 @@ export default function App() {
         <button
           onClick={() => setIsStaffManagerOpen(true)}
           id="trigger-staff-director"
-          className="flex items-center gap-1 text-[10px] sm:text-xs font-bold bg-blue-600 hover:bg-blue-500 active:scale-95 text-white py-1 px-2.5 rounded-md shadow-md shadow-blue-600/10 transition-all font-sans"
+          className="flex items-center gap-1.5 text-[10px] sm:text-xs font-black bg-brand-gold hover:bg-amber-400 active:scale-95 text-black py-1 px-3 rounded-md shadow-md shadow-brand-gold/15 transition-all font-sans cursor-pointer"
         >
-          <Users className="w-3.5 h-3.5" />
-          <span>Team Roster ({staff.length}/{MAX_ROSTER_SIZE})</span>
+          <Users className="w-5.5 h-5.5" />
+          <span>Team Roster ({staff.length})</span>
         </button>
       </header>
 
@@ -279,7 +273,7 @@ export default function App() {
         </section>
 
         {/* Right Side (47% width): Multi-Shift Operator panel and quick shift template form */}
-        <section className="w-[47%] h-full flex flex-col bg-neutral-950 overflow-hidden relative">
+        <section className="w-[47%] h-full flex flex-col bg-white overflow-hidden relative border-l border-slate-200">
           <ShiftDetailsController
             selectedDateStr={selectedDateStr}
             shifts={shifts}
