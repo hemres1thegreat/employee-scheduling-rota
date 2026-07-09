@@ -49,9 +49,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
 
   // Month navigation years/month states
- const today = new Date();
-const [currentYear, setCurrentYear] = useState(today.getFullYear());
-const [currentMonth, setCurrentMonth] = useState(today.getMonth());
+  const today = new Date();
+  const [currentYear, setCurrentYear] = useState(today.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   // Roster section open toggles
   const [isStaffManagerOpen, setIsStaffManagerOpen] = useState(false);
 
@@ -209,7 +209,7 @@ const [currentMonth, setCurrentMonth] = useState(today.getMonth());
             <h1 className="text-xs font-extrabold text-white tracking-tight leading-none">
               Employee Rota Scheduling
             </h1>
-            <p className="text-[8px] text-slate-300 font-medium">Landscape Multi-Shift Organizer</p>
+            <p className="text-[8px] text-slate-300 font-medium">Responsive Multi-Shift Organizer</p>
           </div>
         </div>
 
@@ -236,9 +236,9 @@ const [currentMonth, setCurrentMonth] = useState(today.getMonth());
             id="simulation-role-switcher"
             className="bg-transparent border-none text-[10px] font-extrabold text-[#F9C513] focus:outline-none cursor-pointer outline-none"
           >
-            <option value="Admin" className="bg-slate-900 text-neutral-200">🔑 Admin</option>
-            <option value="General Manager" className="bg-slate-900 text-neutral-200">💼 Gen Manager</option>
-            <option value="Regular Staff" className="bg-slate-900 text-neutral-200">👥 Regular Staff</option>
+            <option value="Admin" className="bg-[#0B2545] text-[#F9C513] font-bold">🔑 Admin</option>
+            <option value="General Manager" className="bg-[#0B2545] text-[#F9C513] font-bold">💼 Gen Manager</option>
+            <option value="Regular Staff" className="bg-[#0B2545] text-[#F9C513] font-bold">👥 Regular Staff</option>
           </select>
         </div>
 
@@ -254,10 +254,10 @@ const [currentMonth, setCurrentMonth] = useState(today.getMonth());
       </header>
 
       {/* Main Dual-Pane Dashboard Layout with white (#FFFFFF) background & black (#000000) text */}
-      <main className="flex-1 flex min-h-0 select-none overflow-hidden relative bg-white text-black">
+      <main className="flex-1 flex flex-col lg:flex-row min-h-0 select-none overflow-y-auto lg:overflow-hidden relative bg-white text-black">
         
-        {/* Left Side (53% width): Interactive Scrollable Calendar */}
-        <section className="w-[53%] h-full flex flex-col overflow-hidden bg-white">
+        {/* Left Side: Interactive Scrollable Calendar */}
+        <section className="w-full lg:w-[53%] h-auto lg:h-full flex flex-col overflow-visible lg:overflow-hidden bg-white shrink-0">
           <CalendarSection
             selectedDateStr={selectedDateStr}
             onSelectDate={handleSelectDate}
@@ -272,8 +272,8 @@ const [currentMonth, setCurrentMonth] = useState(today.getMonth());
           />
         </section>
 
-        {/* Right Side (47% width): Multi-Shift Operator panel and quick shift template form */}
-        <section className="w-[47%] h-full flex flex-col bg-white overflow-hidden relative border-l border-slate-200">
+        {/* Right Side: Multi-Shift Operator panel and quick shift template form */}
+        <section className="w-full lg:w-[47%] h-auto lg:h-full flex flex-col bg-white overflow-visible lg:overflow-hidden relative border-t lg:border-t-0 lg:border-l border-slate-200 shrink-0">
           <ShiftDetailsController
             selectedDateStr={selectedDateStr}
             shifts={shifts}
