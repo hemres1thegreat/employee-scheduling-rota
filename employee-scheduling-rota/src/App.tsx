@@ -49,9 +49,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
 
   // Month navigation years/month states
-  const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(5); // June is 5 in JS Date Object
-
+ const today = new Date();
+const [currentYear, setCurrentYear] = useState(today.getFullYear());
+const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   // Roster section open toggles
   const [isStaffManagerOpen, setIsStaffManagerOpen] = useState(false);
 
@@ -197,8 +197,8 @@ export default function App() {
 
   return (
     <IPhoneShell>
-      {/* Rota App Navigation Bar */}
-      <header className="h-10 px-4 bg-slate-900 border-b border-slate-850 flex items-center justify-between select-none flex-shrink-0 z-20">
+      {/* Rota App Navigation Bar - Deep Navy Blue (#0B2545) for primary structural header */}
+      <header className="h-10 px-4 bg-[#0B2545] border-b border-blue-900/40 flex items-center justify-between select-none flex-shrink-0 z-20">
         <div className="flex items-center gap-2">
           {/* Custom iOS-themed Calendar Spark Logo */}
           <div className="w-5.5 h-5.5 rounded-lg bg-red-500 flex flex-col items-center justify-center text-white scale-90 relative shadow-sm">
@@ -214,12 +214,12 @@ export default function App() {
         </div>
 
         {/* Operating status badge */}
-        <div className="hidden sm:flex items-center gap-1.5 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-md">
-          <Clock className="w-5 h-5 text-brand-gold" />
+        <div className="hidden sm:flex items-center gap-1.5 bg-[#134074]/30 border border-[#134074]/50 px-2 py-0.5 rounded-md">
+          <Clock className="w-5 h-5 text-[#F9C513]" />
           <span className="text-[9px] text-slate-200 font-sans">
             {dayShiftRules.isOpen ? (
               <span>
-                Standard hours: <strong className="text-brand-gold font-bold">{dayShiftRules.morning.start} - 19:00</strong>
+                Standard hours: <strong className="text-[#F9C513] font-bold">{dayShiftRules.morning.start} - 19:00</strong>
               </span>
             ) : (
               <span className="text-red-400 font-semibold uppercase tracking-wider text-[8px]">Closed today</span>
@@ -228,13 +228,13 @@ export default function App() {
         </div>
 
         {/* Live Active Role Simulation Switcher */}
-        <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 px-2 py-1 rounded-lg">
+        <div className="flex items-center gap-1 bg-[#134074]/30 border border-[#134074]/50 px-2 py-1 rounded-lg">
           <span className="text-[8px] text-slate-300 font-black uppercase tracking-wider hidden md:inline">Simulation Role:</span>
           <select
             value={userRole}
             onChange={(e) => setUserRole(e.target.value as UserRole)}
             id="simulation-role-switcher"
-            className="bg-transparent border-none text-[10px] font-extrabold text-brand-gold focus:outline-none cursor-pointer outline-none"
+            className="bg-transparent border-none text-[10px] font-extrabold text-[#F9C513] focus:outline-none cursor-pointer outline-none"
           >
             <option value="Admin" className="bg-slate-900 text-neutral-200">🔑 Admin</option>
             <option value="General Manager" className="bg-slate-900 text-neutral-200">💼 Gen Manager</option>
@@ -242,22 +242,22 @@ export default function App() {
           </select>
         </div>
 
-        {/* Header Action Button to Open Roster Sheet */}
+        {/* Header Action Button to Open Roster Sheet - Golden Yellow (#F9C513) */}
         <button
           onClick={() => setIsStaffManagerOpen(true)}
           id="trigger-staff-director"
-          className="flex items-center gap-1.5 text-[10px] sm:text-xs font-black bg-brand-gold hover:bg-amber-400 active:scale-95 text-black py-1 px-3 rounded-md shadow-md shadow-brand-gold/15 transition-all font-sans cursor-pointer"
+          className="flex items-center gap-1.5 text-[10px] sm:text-xs font-black bg-[#F9C513] hover:bg-amber-400 active:scale-95 text-black py-1 px-3 rounded-md shadow-md shadow-[#F9C513]/15 transition-all font-sans cursor-pointer"
         >
           <Users className="w-5.5 h-5.5" />
           <span>Team Roster ({staff.length})</span>
         </button>
       </header>
 
-      {/* Main Dual-Pane Dashboard Layout configured for Landscape High-density viewports */}
-      <main className="flex-1 flex min-h-0 select-none overflow-hidden relative">
+      {/* Main Dual-Pane Dashboard Layout with white (#FFFFFF) background & black (#000000) text */}
+      <main className="flex-1 flex min-h-0 select-none overflow-hidden relative bg-white text-black">
         
         {/* Left Side (53% width): Interactive Scrollable Calendar */}
-        <section className="w-[53%] h-full flex flex-col overflow-hidden">
+        <section className="w-[53%] h-full flex flex-col overflow-hidden bg-white">
           <CalendarSection
             selectedDateStr={selectedDateStr}
             onSelectDate={handleSelectDate}
