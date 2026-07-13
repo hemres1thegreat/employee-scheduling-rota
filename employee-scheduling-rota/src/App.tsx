@@ -40,7 +40,6 @@ import {
   deleteStaffFromFirestore,
   subscribeToRegistrationSettings,
   updateRegistrationSettingsInFirestore
-} from './utils/firebaseSync';
 import {
   parseDateString,
   getDayShiftConfig,
