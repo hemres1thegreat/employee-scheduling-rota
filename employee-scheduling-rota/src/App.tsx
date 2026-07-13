@@ -29,19 +29,9 @@ import CalendarSection from './components/CalendarSection';
 import ShiftDetailsController from './components/ShiftDetailsController';
 import StaffManager from './components/StaffManager';
 import { Staff, Shift, UserRole } from './types';
-import { 
-seedDatabaseIfEmpty,
-subscribeToStaff,
-subscribeToShifts,
-addOrUpdateShiftInFirestore,
-deleteShiftFromFirestore,
-addStaffToFirestore,
-updateStaffInFirestore,
-deleteStaffFromFirestore,
-subscribeToRegistrationSettings,
-updateRegistrationSettingsInFirestore
-} from './utils/firebaseSync';
-  getDayShiftConfig,
+import {
+  parseDateString,
+  getDayShiftConfig
 } from './utils/rotaUtils';
 
 const APPLE_COLOR_PALETTE = [
