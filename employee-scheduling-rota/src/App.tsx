@@ -30,18 +30,17 @@ import ShiftDetailsController from './components/ShiftDetailsController';
 import StaffManager from './components/StaffManager';
 import { Staff, Shift, UserRole } from './types';
 import { 
-  seedDatabaseIfEmpty,
-  subscribeToStaff,
-  subscribeToShifts,
-  addOrUpdateShiftInFirestore,
-  deleteShiftFromFirestore,
-  addStaffToFirestore,
-  updateStaffInFirestore,
-  deleteStaffFromFirestore,
-  subscribeToRegistrationSettings,
-  updateRegistrationSettingsInFirestore
-import {
-  parseDateString,
+seedDatabaseIfEmpty,
+subscribeToStaff,
+subscribeToShifts,
+addOrUpdateShiftInFirestore,
+deleteShiftFromFirestore,
+addStaffToFirestore,
+updateStaffInFirestore,
+deleteStaffFromFirestore,
+subscribeToRegistrationSettings,
+updateRegistrationSettingsInFirestore
+} from './utils/firebaseSync';
   getDayShiftConfig,
 } from './utils/rotaUtils';
 
