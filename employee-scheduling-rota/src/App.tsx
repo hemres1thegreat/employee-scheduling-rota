@@ -22,7 +22,7 @@ import {
   ToggleLeft, 
   ToggleRight 
 } from 'lucide-react';
-import { supabase } from './supabaseclient';
+import { supabase } from './supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import IPhoneShell from './components/IPhoneShell';
 import CalendarSection from './components/CalendarSection';
