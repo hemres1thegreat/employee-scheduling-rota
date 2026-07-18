@@ -367,16 +367,15 @@ export default function App() {
         }
 
         // Create user in Supabase Auth
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-        if (error) throw error;
-
-        const newUser = data?.user;
-        if (!newUser) {
-          throw new Error('Could not register account. Please check your Supabase settings.');
-        }
+       const { data, error } = await supabase.auth.signUp({
+  email: email,
+  password: password,
+  options: {
+    data: {
+      full_name: fullName,
+    }
+  }
+});
         
         // Create corresponding Staff record in Firestore
         const newStaff: Staff = {
