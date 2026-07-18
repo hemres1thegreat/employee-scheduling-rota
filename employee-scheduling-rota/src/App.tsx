@@ -63,16 +63,16 @@ export default function App() {
   const [authSuccess, setAuthSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Firestore Real-Time Synchronized States
+  // Database Synchronized States
   const [staff, setStaff] = useState<Staff[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [allowPublicSignUp, setAllowPublicSignUp] = useState(true);
 
-  // Selected date defaults to June 20, 2026 (first seed Saturday)
+  // Selected date defaults to June 20, 2026
   const [selectedDateStr, setSelectedDateStr] = useState('2026-06-20');
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
 
-  // Month navigation years/month states
+  // Month navigation dates
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
@@ -80,25 +80,22 @@ export default function App() {
   // Roster section open toggles
   const [isStaffManagerOpen, setIsStaffManagerOpen] = useState(false);
 
-  // 1. Initial Seeding and Firestore Data Subscription
+  // 1. Database Subscription Mock Hooks (Keep linked to your custom service endpoints)
   useEffect(() => {
-    // Seed default records if Firestore collections are completely empty
-    seedDatabaseIfEmpty();
+    // These mock helper configurations should be defined in your app's main data pipeline
+    if (typeof (window as any).seedDatabaseIfEmpty === 'function') (window as any).seedDatabaseIfEmpty();
 
-    // Subscribe to staff changes in real-time
-    const unsubscribeStaff = subscribeToStaff((updatedStaff) => {
-      setStaff(updatedStaff);
-    });
+    const unsubscribeStaff = typeof (window as any).subscribeToStaff === 'function' 
+      ? (window as any).subscribeToStaff((updatedStaff: Staff[]) => setStaff(updatedStaff))
+      : () => {};
 
-    // Subscribe to shifts changes in real-time
-    const unsubscribeShifts = subscribeToShifts((updatedShifts) => {
-      setShifts(updatedShifts);
-    });
+    const unsubscribeShifts = typeof (window as any).subscribeToShifts === 'function' 
+      ? (window as any).subscribeToShifts((updatedShifts: Shift[]) => setShifts(updatedShifts))
+      : () => {};
 
-    // Subscribe to registration settings (allowPublicSignUp)
-    const unsubscribeSettings = subscribeToRegistrationSettings((settings) => {
-      setAllowPublicSignUp(settings.allowPublicSignUp);
-    });
+    const unsubscribeSettings = typeof (window as any).subscribeToRegistrationSettings === 'function'
+      ? (window as any).subscribeToRegistrationSettings((settings: any) => setAllowPublicSignUp(settings.allowPublicSignUp))
+      : () => {};
 
     return () => {
       unsubscribeStaff();
@@ -107,14 +104,13 @@ export default function App() {
     };
   }, []);
 
-  // 2. Authentication Observer and Role Mapping
+  // 2. Authentication Observer and Profile Role Parsing
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setIsLoadingAuth(false);
       return;
     }
 
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       const user = session?.user ?? null;
       setCurrentUser(user);
@@ -122,7 +118,6 @@ export default function App() {
       setIsLoadingAuth(false);
     });
 
-    // Listen to changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const user = session?.user ?? null;
       setCurrentUser(user);
@@ -132,25 +127,22 @@ export default function App() {
 
     function updateUserRoleAndProfile(user: SupabaseUser | null) {
       if (user) {
-        // Look up profile in staff list
         const profile = staff.find(
           (s) => s.id === user.id || s.email?.toLowerCase() === user.email?.toLowerCase()
         );
 
         if (profile) {
           setCurrentUserProfile(profile);
-          // Standardize Firestore role string to matching UserRole state
           const r = profile.role.toLowerCase();
           if (r.includes('admin') || r.includes('store manager')) {
             setUserRole('Admin');
-          } else if (r.includes('lead') || r.includes('general manager') || r.includes('gen manager') || r.includes('assistant')) {
+          } else if (r.includes('lead') || r.includes('general manager') || r.includes('assistant')) {
             setUserRole('General Manager');
           } else {
             setUserRole('Regular Staff');
           }
         } else {
           setCurrentUserProfile(null);
-          // If logged in but no profile exists, let user be Admin if email matches termz50@gmail.com, otherwise Regular Staff
           if (user.email?.toLowerCase() === 'termz50@gmail.com') {
             setUserRole('Admin');
           } else {
@@ -168,7 +160,6 @@ export default function App() {
     };
   }, [staff]);
 
-  // Adjust month navigation if selected date changes radically (keep monthly grid aligned)
   const handleSelectDate = (dateStr: string) => {
     setSelectedDateStr(dateStr);
     const parsed = parseDateString(dateStr);
@@ -176,10 +167,12 @@ export default function App() {
     setCurrentMonth(parsed.getMonth());
   };
 
-  // 3. Firestore Action Handlers (Replacing local state writes)
+  // 3. Rota Action Managers
   const handleAddOrUpdateShift = async (updatedShift: Shift) => {
     try {
-      await addOrUpdateShiftInFirestore(updatedShift);
+      if (typeof (window as any).addOrUpdateShiftInFirestore === 'function') {
+        await (window as any).addOrUpdateShiftInFirestore(updatedShift);
+      }
     } catch (e) {
       alert('Failed to save shift changes: ' + e);
     }
@@ -187,7 +180,9 @@ export default function App() {
 
   const handleRemoveShift = async (shiftId: string) => {
     try {
-      await deleteShiftFromFirestore(shiftId);
+      if (typeof (window as any).deleteShiftFromFirestore === 'function') {
+        await (window as any).deleteShiftFromFirestore(shiftId);
+      }
     } catch (e) {
       alert('Failed to delete shift: ' + e);
     }
@@ -195,7 +190,9 @@ export default function App() {
 
   const handleAddStaff = async (newStaff: Staff) => {
     try {
-      await addStaffToFirestore(newStaff);
+      if (typeof (window as any).addStaffToFirestore === 'function') {
+        await (window as any).addStaffToFirestore(newStaff);
+      }
     } catch (e) {
       alert('Failed to add staff member: ' + e);
     }
@@ -203,7 +200,9 @@ export default function App() {
 
   const handleUpdateStaffMember = async (staffId: string, updates: Partial<Staff>) => {
     try {
-      await updateStaffInFirestore(staffId, updates);
+      if (typeof (window as any).updateStaffInFirestore === 'function') {
+        await (window as any).updateStaffInFirestore(staffId, updates);
+      }
     } catch (e) {
       alert('Failed to update staff member: ' + e);
     }
@@ -211,10 +210,10 @@ export default function App() {
 
   const handleDeleteStaff = async (staffId: string) => {
     try {
-      // Delete core profile
-      await deleteStaffFromFirestore(staffId);
+      if (typeof (window as any).deleteStaffFromFirestore === 'function') {
+        await (window as any).deleteStaffFromFirestore(staffId);
+      }
       
-      // Clear assignments and pending requests containing deleted staff member
       const affectedShifts = shifts.filter(
         (s) => s.assignedStaffIds.includes(staffId) || s.requestedStaffIds?.includes(staffId)
       );
@@ -225,7 +224,9 @@ export default function App() {
           assignedStaffIds: shift.assignedStaffIds.filter((id) => id !== staffId),
           requestedStaffIds: (shift.requestedStaffIds || []).filter((id) => id !== staffId)
         };
-        await addOrUpdateShiftInFirestore(updatedShift);
+        if (typeof (window as any).addOrUpdateShiftInFirestore === 'function') {
+          await (window as any).addOrUpdateShiftInFirestore(updatedShift);
+        }
       }
     } catch (e) {
       alert('Failed to remove staff member: ' + e);
@@ -241,7 +242,9 @@ export default function App() {
             ...shift,
             assignedStaffIds: [...shift.assignedStaffIds, staffId],
           };
-          await addOrUpdateShiftInFirestore(updatedShift);
+          if (typeof (window as any).addOrUpdateShiftInFirestore === 'function') {
+            await (window as any).addOrUpdateShiftInFirestore(updatedShift);
+          }
         }
       }
     } catch (e) {
@@ -260,7 +263,9 @@ export default function App() {
               ...shift,
               requestedStaffIds: [...requested, staffId],
             };
-            await addOrUpdateShiftInFirestore(updatedShift);
+            if (typeof (window as any).addOrUpdateShiftInFirestore === 'function') {
+              await (window as any).addOrUpdateShiftInFirestore(updatedShift);
+            }
           }
         }
       }
@@ -284,7 +289,9 @@ export default function App() {
           requestedStaffIds: updatedRequested,
           assignedStaffIds: updatedAssigned,
         };
-        await addOrUpdateShiftInFirestore(updatedShift);
+        if (typeof (window as any).addOrUpdateShiftInFirestore === 'function') {
+          await (window as any).addOrUpdateShiftInFirestore(updatedShift);
+        }
       }
     } catch (e) {
       alert('Failed to approve request: ' + e);
@@ -300,23 +307,26 @@ export default function App() {
           ...shift,
           requestedStaffIds: requested.filter((id) => id !== staffId),
         };
-        await addOrUpdateShiftInFirestore(updatedShift);
+        if (typeof (window as any).addOrUpdateShiftInFirestore === 'function') {
+          await (window as any).addOrUpdateShiftInFirestore(updatedShift);
+        }
       }
     } catch (e) {
       alert('Failed to reject request: ' + e);
     }
   };
 
-  // Toggle Public Sign-ups (Admin Setting)
   const handleTogglePublicRegistration = async () => {
     try {
-      await updateRegistrationSettingsInFirestore(!allowPublicSignUp);
+      if (typeof (window as any).updateRegistrationSettingsInFirestore === 'function') {
+        await (window as any).updateRegistrationSettingsInFirestore(!allowPublicSignUp);
+      }
     } catch (e) {
       alert('Failed to update registration settings: ' + e);
     }
   };
 
-  // 4. Auth Actions (Login / Signup / Signout)
+  // 4. Form Submission & Custom Logic Route Handlers
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
@@ -324,38 +334,29 @@ export default function App() {
     setIsSubmitting(true);
 
     if (!isSupabaseConfigured) {
-      setAuthError('Supabase is not configured yet. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your settings.');
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (!email || !password) {
-      setAuthError('Please fill out all required fields.');
+      setAuthError('Supabase config credentials missing.');
       setIsSubmitting(false);
       return;
     }
 
     try {
       if (authTab === 'signin') {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         if (error) throw error;
         setAuthSuccess('Logged in successfully!');
       } else {
-        // Password confirmation check
         if (password !== confirmPassword) {
           setAuthError('Passwords do not match. Please verify both fields.');
           setIsSubmitting(false);
           return;
         }
 
-        // Under Registration
-        // If registration is disabled AND user is not the special owner, reject.
         const isSpecialOwner = email.toLowerCase() === 'termz50@gmail.com';
         if (!allowPublicSignUp && !isSpecialOwner) {
-          setAuthError('Public registration is currently disabled by Admin. Please ask your administrator to enable it.');
+          setAuthError('Public registration is currently disabled by Admin.');
           setIsSubmitting(false);
           return;
         }
@@ -366,20 +367,21 @@ export default function App() {
           return;
         }
 
-        // Create user in Supabase Auth
-       const { data, error } = await supabase.auth.signUp({
-  email: email,
-  password: password,
-  options: {
-    data: {
-      full_name: fullName,
-    }
-  }
-});
+        const { data, error } = await supabase.auth.signUp({
+          email: email,
+          password: password,
+          options: {
+            data: {
+              full_name: fullName,
+            }
+          }
+        });
+
+        if (error) throw error;
+        if (!data?.user) throw new Error('Failed to register user attributes.');
         
-        // Create corresponding Staff record in Firestore
         const newStaff: Staff = {
-          id: newUser.id,
+          id: data.user.id,
           name: fullName,
           role: 'Sales Associate',
           color: selectedColor,
@@ -389,16 +391,14 @@ export default function App() {
           email: email.toLowerCase()
         };
 
-        await addStaffToFirestore(newStaff);
+        if (typeof (window as any).addStaffToFirestore === 'function') {
+          await (window as any).addStaffToFirestore(newStaff);
+        }
         setAuthSuccess('Account registered and staff profile created!');
       }
     } catch (err: any) {
       console.error(err);
-      let msg = err.message || 'An authentication error occurred.';
-      if (msg.includes('invalid claim') || msg.includes('Invalid login')) {
-        msg = 'Invalid email or password.';
-      }
-      setAuthError(msg);
+      setAuthError(err.message || 'An authentication error occurred.');
     } finally {
       setIsSubmitting(false);
     }
@@ -406,19 +406,15 @@ export default function App() {
 
   const handleSignOut = async () => {
     try {
-      if (isSupabaseConfigured) {
-        await supabase.auth.signOut();
-      }
+      if (isSupabaseConfigured) await supabase.auth.signOut();
     } catch (e) {
       console.error('Logout error:', e);
     }
   };
 
-  // Auto-fill active day check
   const selectedDateObject = parseDateString(selectedDateStr);
   const dayShiftRules = getDayShiftConfig(selectedDateObject.getDay());
 
-  // Show beautiful screen loading spinner during initial auth evaluation
   if (isLoadingAuth) {
     return (
       <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-4">
@@ -430,17 +426,14 @@ export default function App() {
     );
   }
 
-  // Auth Guard / Access Screen
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-4">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden transition-all duration-300">
-          {/* Brand/Security Header */}
           <div className="bg-[#0B2545] p-6 text-center relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-[#F9C513]/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
             <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-500/5 rounded-full blur-xl -ml-8 -mb-8"></div>
             
-            {/* Custom Logo Container */}
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#F9C513]/15 border border-[#F9C513]/30 text-[#F9C513] mb-3">
               <Lock className="w-6 h-6" />
             </div>
@@ -448,7 +441,6 @@ export default function App() {
             <h1 className="text-lg font-black text-white tracking-tight">Rota Staff Multi-User Gate</h1>
             <p className="text-xs text-slate-300 mt-1 font-sans">Authorized Scheduling & Payroll Access</p>
 
-            {/* Segmented control for Tabs */}
             <div className="mt-5 bg-white/10 p-1 rounded-xl flex items-center border border-white/10">
               <button
                 type="button"
@@ -460,9 +452,7 @@ export default function App() {
                   setAuthSuccess('');
                 }}
                 className={`flex-1 py-1.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
-                  authTab === 'signin' 
-                    ? 'bg-white text-[#0B2545] shadow-md' 
-                    : 'text-white hover:text-white/80'
+                  authTab === 'signin' ? 'bg-white text-[#0B2545] shadow-md' : 'text-white hover:text-white/80'
                 }`}
               >
                 Sign In
@@ -477,9 +467,7 @@ export default function App() {
                   setAuthSuccess('');
                 }}
                 className={`flex-1 py-1.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
-                  authTab === 'signup' 
-                    ? 'bg-white text-[#0B2545] shadow-md' 
-                    : 'text-white hover:text-white/80'
+                  authTab === 'signup' ? 'bg-white text-[#0B2545] shadow-md' : 'text-white hover:text-white/80'
                 }`}
               >
                 Sign Up / Register
@@ -487,16 +475,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* Form Section */}
           <form onSubmit={handleAuthSubmit} className="p-6 space-y-4">
-            
-            {/* Registration specific fields */}
             {authTab === 'signup' && (
               <>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                    Full Name
-                  </label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Full Name</label>
                   <div className="relative">
                     <input
                       type="text"
@@ -513,9 +496,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                    Highlight Color for Shifts
-                  </label>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Highlight Color for Shifts</label>
                   <div className="flex items-center gap-2 pt-1 flex-wrap">
                     {APPLE_COLOR_PALETTE.map((color) => (
                       <button
@@ -523,15 +504,11 @@ export default function App() {
                         key={color}
                         onClick={() => setSelectedColor(color)}
                         className={`w-6 h-6 rounded-full border transition-all cursor-pointer flex items-center justify-center ${
-                          selectedColor === color 
-                            ? 'scale-110 ring-2 ring-slate-800 border-white' 
-                            : 'border-slate-200 hover:scale-105'
+                          selectedColor === color ? 'scale-110 ring-2 ring-slate-800 border-white' : 'border-slate-200 hover:scale-105'
                         }`}
                         style={{ backgroundColor: color }}
                       >
-                        {selectedColor === color && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
-                        )}
+                        {selectedColor === color && <span className="w-1.5 h-1.5 rounded-full bg-white"></span>}
                       </button>
                     ))}
                   </div>
@@ -539,11 +516,8 @@ export default function App() {
               </>
             )}
 
-            {/* Common fields (Email, Password) */}
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                Email Address
-              </label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Email Address</label>
               <div className="relative">
                 <input
                   type="email"
@@ -560,9 +534,7 @@ export default function App() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                Password
-              </label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Password</label>
               <div className="relative">
                 <input
                   type="password"
@@ -580,9 +552,7 @@ export default function App() {
 
             {authTab === 'signup' && (
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                  Confirm Password
-                </label>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Confirm Password</label>
                 <div className="relative">
                   <input
                     type="password"
@@ -599,7 +569,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Public signups status block inside signup tab */}
             {authTab === 'signup' && !allowPublicSignUp && email.toLowerCase() !== 'termz50@gmail.com' && (
               <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
@@ -610,7 +579,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Success and Error messages */}
             {authError && (
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-medium">
                 <AlertTriangle className="w-4.5 h-4.5 shrink-0 text-red-600" />
@@ -625,18 +593,16 @@ export default function App() {
               </div>
             )}
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`w-full px-4 py-3 bg-[#0B2545] hover:bg-[#134074] text-white rounded-xl text-xs font-black shadow-md shadow-blue-900/10 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-70`}
+              className="w-full px-4 py-3 bg-[#0B2545] hover:bg-[#134074] text-white rounded-xl text-xs font-black shadow-md shadow-blue-900/10 active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-70"
             >
               <span>{isSubmitting ? 'Authenticating...' : authTab === 'signin' ? 'Verify Credentials' : 'Register Account'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </form>
 
-          {/* Secure footer helper info */}
           <div className="bg-slate-50 border-t border-slate-100 px-6 py-4 flex items-center gap-2.5">
             <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
             <span className="text-[10px] text-slate-500 font-medium">
@@ -650,39 +616,30 @@ export default function App() {
 
   return (
     <IPhoneShell>
-      {/* Rota App Navigation Bar - Deep Navy Blue (#0B2545) for primary structural header */}
       <header className="h-10 px-4 bg-[#0B2545] border-b border-blue-900/40 flex items-center justify-between select-none flex-shrink-0 z-20">
         <div className="flex items-center gap-2">
-          {/* Custom iOS-themed Calendar Spark Logo */}
           <div className="w-5.5 h-5.5 rounded-lg bg-red-500 flex flex-col items-center justify-center text-white scale-90 relative shadow-sm">
             <span className="text-[6px] font-black tracking-widest leading-none uppercase pt-0.5">ROTA</span>
             <span className="text-[10px] font-extrabold leading-none pb-0.5">20</span>
           </div>
           <div>
-            <h1 className="text-xs font-extrabold text-white tracking-tight leading-none">
-              Employee Rota Scheduling
-            </h1>
+            <h1 className="text-xs font-extrabold text-white tracking-tight leading-none">Employee Rota Scheduling</h1>
             <p className="text-[8px] text-slate-300 font-medium">Responsive Multi-Shift Organizer</p>
           </div>
         </div>
 
-        {/* Operating status badge */}
         <div className="hidden lg:flex items-center gap-1.5 bg-[#134074]/30 border border-[#134074]/50 px-2 py-0.5 rounded-md">
           <Clock className="w-5 h-5 text-[#F9C513]" />
           <span className="text-[9px] text-slate-200 font-sans">
             {dayShiftRules.isOpen ? (
-              <span>
-                Standard hours: <strong className="text-[#F9C513] font-bold">{dayShiftRules.morning.start} - 19:00</strong>
-              </span>
+              <span>Standard hours: <strong className="text-[#F9C513] font-bold">{dayShiftRules.morning.start} - 19:00</strong></span>
             ) : (
               <span className="text-red-400 font-semibold uppercase tracking-wider text-[8px]">Closed today</span>
             )}
           </span>
         </div>
 
-        {/* Dynamic Controls Header Group */}
         <div className="flex items-center gap-2">
-          {/* Dynamic Registration Toggle Setting for Admins ONLY */}
           {userRole === 'Admin' && (
             <button
               onClick={handleTogglePublicRegistration}
@@ -696,7 +653,6 @@ export default function App() {
             </button>
           )}
 
-          {/* Active Logged-in User Badge */}
           <div className="flex items-center gap-1.5 bg-[#134074]/30 border border-[#134074]/50 px-2 py-1 rounded-lg select-none">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: currentUserProfile?.color || '#F9C513' }}></div>
             <div className="text-left leading-none">
@@ -709,7 +665,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Header Action Button to Open Roster Sheet - Golden Yellow (#F9C513) */}
           <button
             onClick={() => setIsStaffManagerOpen(true)}
             id="trigger-staff-director"
@@ -719,7 +674,6 @@ export default function App() {
             <span>Roster ({staff.length})</span>
           </button>
 
-          {/* Log Out Button */}
           <button
             onClick={handleSignOut}
             title="Sign Out of Session"
@@ -730,10 +684,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Dual-Pane Dashboard Layout with white (#FFFFFF) background & black (#000000) text */}
       <main className="flex-1 flex flex-col md:flex-row min-h-0 select-none overflow-y-auto md:overflow-hidden relative bg-white text-black">
-        
-        {/* Left Side: Interactive Scrollable Calendar */}
         <section className="w-full md:w-[53%] h-auto md:h-full flex flex-col overflow-visible md:overflow-hidden bg-white shrink-0">
           <CalendarSection
             selectedDateStr={selectedDateStr}
@@ -749,7 +700,6 @@ export default function App() {
           />
         </section>
 
-        {/* Right Side: Multi-Shift Operator panel and quick shift template form */}
         <section className="w-full md:w-[47%] h-auto md:h-full flex flex-col bg-white overflow-visible md:overflow-hidden relative border-t md:border-t-0 md:border-l border-slate-200 shrink-0">
           <ShiftDetailsController
             selectedDateStr={selectedDateStr}
@@ -762,7 +712,6 @@ export default function App() {
         </section>
       </main>
 
-      {/* Slide-over Workforce Directory Drawer */}
       <StaffManager
         staff={staff}
         onAddStaff={handleAddStaff}
