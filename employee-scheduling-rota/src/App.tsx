@@ -12,8 +12,25 @@ import {
   FileText, Phone, Briefcase, Plus, Check, Coins, ShieldAlert, 
   FileSpreadsheet, Trash2, ChevronLeft, ChevronRight, Eye, EyeOff
 } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from './supabase';
-import { User as SupabaseUser } from '@supabase/supabase-js';
+import { createClient, User as SupabaseUser } from '@supabase/supabase-js';
+
+// Retrieve values from import.meta.env with fallback to embedded credentials
+let rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://jundylmbxyqbndepxpda.supabase.co';
+let rawKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrMDIkP6wN_G953anvw_-Vk0hTnCV';
+
+// Clean up any surrounding quotes or spaces that might have been included in the environment setup
+const sanitize = (val: any): string => {
+  if (typeof val !== 'string') return '';
+  return val.replace(/^['"]|['"]$/g, '').trim();
+};
+
+const supabaseUrl = sanitize(rawUrl);
+const supabaseAnonKey = sanitize(rawKey);
+
+// Always marked as true since we have robust embedded fallback options
+export const isSupabaseConfigured = true;
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
 
 // --- Type Definitions ---
 export type UserRole = 'Admin' | 'General Manager' | 'Regular Staff';
@@ -29,6 +46,8 @@ export interface Staff {
   hourlyRate?: number;
   bonusAdjustment?: number;
   email?: string;
+  status?: 'active' | 'pending';
+  is_approved?: boolean;
 }
 
 export interface Shift {
@@ -188,6 +207,10 @@ const mapDbStaff = (row: any): Staff => {
   if (!finalName) {
     finalName = 'Staff Member';
   }
+  let status: 'active' | 'pending' = 'active';
+  if (row.status === 'pending' || row.is_approved === false) {
+    status = 'pending';
+  }
   return {
     id: row.id,
     name: finalName,
@@ -197,14 +220,18 @@ const mapDbStaff = (row: any): Staff => {
     phone: row.phone || 'Unlisted',
     hourlyRate: typeof row.hourlyRate === 'number' ? row.hourlyRate : (typeof row.hourly_rate === 'number' ? row.hourly_rate : 10.00),
     bonusAdjustment: typeof row.bonusAdjustment === 'number' ? row.bonusAdjustment : (typeof row.bonus_adjustment === 'number' ? row.bonus_adjustment : 0),
-    email: row.email || ''
+    email: row.email || '',
+    status: status,
+    is_approved: row.is_approved !== undefined ? row.is_approved : (status === 'active')
   };
 };
 
 const dbStaffObject = (s: Staff) => ({
   id: s.id, name: s.name, role: s.role, color: s.color, phone: s.phone || 'Unlisted',
   hourly_rate: s.hourlyRate ?? 10.00, hourlyRate: s.hourlyRate ?? 10.00,
-  bonus_adjustment: s.bonusAdjustment ?? 0, bonusAdjustment: s.bonusAdjustment ?? 0, email: s.email || ''
+  bonus_adjustment: s.bonusAdjustment ?? 0, bonusAdjustment: s.bonusAdjustment ?? 0, email: s.email || '',
+  status: s.status || 'active',
+  is_approved: s.is_approved !== undefined ? s.is_approved : (s.status !== 'pending')
 });
 
 const mapDbShift = (row: any): Shift => ({
@@ -1020,6 +1047,33 @@ function StaffManager({
                       </div>
                     )}
 
+                    {isAdminOrGM && staff.filter(s => s.status === 'pending' || s.is_approved === false).length > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                        <span className="text-[8px] font-bold text-amber-700 uppercase block mb-1">Pending Staff Registrations ({staff.filter(s => s.status === 'pending' || s.is_approved === false).length})</span>
+                        <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                          {staff.filter(s => s.status === 'pending' || s.is_approved === false).map(emp => (
+                            <div key={emp.id} className="bg-white p-1.5 border border-slate-200 rounded flex justify-between items-center text-[10px]">
+                              <div>
+                                <span className="font-bold text-slate-800">{emp.name}</span>
+                                <span className="text-slate-500 block text-[9px] font-mono">{emp.email || 'No email'}</span>
+                              </div>
+                              <div className="flex gap-1">
+                                <button 
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    onUpdateStaffMember(emp.id, { status: 'active', is_approved: true }); 
+                                  }} 
+                                  className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[8px] px-2 py-1 rounded transition cursor-pointer"
+                                >
+                                  Approve Staff
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <form onSubmit={handleAddStaffSubmit} className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
                       <span className="text-[9px] font-bold text-slate-500 uppercase block">Register New Employee</span>
                       <div className="grid grid-cols-2 gap-2">
@@ -1050,24 +1104,32 @@ function StaffManager({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {staff.map(emp => (
-                              <tr key={emp.id} onClick={() => setSelectedStaffIdForProfile(emp.id)} className="hover:bg-slate-50 cursor-pointer transition border-b border-slate-100 last:border-b-0">
-                                <td className="p-2 pl-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className="w-3 h-3 rounded-full border border-black/10 shadow-xs shrink-0 inline-block" style={{ backgroundColor: emp.color }} />
-                                    <span className="font-bold text-slate-900 whitespace-normal">{emp.name}</span>
-                                  </div>
-                                </td>
-                                <td className="p-2 text-slate-500">{emp.role}</td>
-                                <td className="p-2 text-center font-mono">
-                                  {isAdminOrGM ? (
-                                    <input type="number" step="0.01" value={emp.hourlyRate ?? 10.00} onClick={e => e.stopPropagation()} onChange={e => onUpdateStaffMember(emp.id, { hourlyRate: parseFloat(e.target.value) || 10.00 })} className="bg-white border rounded w-14 text-center font-bold py-0.5 outline-none border-slate-200 focus:border-amber-400" />
-                                  ) : (
-                                    <span className="text-slate-400 italic">Locked</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
+                            {staff.map(emp => {
+                              const isPending = emp.status === 'pending' || emp.is_approved === false;
+                              return (
+                                <tr key={emp.id} onClick={() => setSelectedStaffIdForProfile(emp.id)} className="hover:bg-slate-50 cursor-pointer transition border-b border-slate-100 last:border-b-0">
+                                  <td className="p-2 pl-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-3 h-3 rounded-full border border-black/10 shadow-xs shrink-0 inline-block" style={{ backgroundColor: emp.color }} />
+                                      <div className="flex flex-col">
+                                        <span className="font-bold text-slate-900 whitespace-normal">{emp.name}</span>
+                                        {isPending && (
+                                          <span className="text-[7px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-1 py-0.5 font-bold uppercase w-max mt-0.5">Pending Approval</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="p-2 text-slate-500">{emp.role}</td>
+                                  <td className="p-2 text-center font-mono">
+                                    {isAdminOrGM ? (
+                                      <input type="number" step="0.01" value={emp.hourlyRate ?? 10.00} onClick={e => e.stopPropagation()} onChange={e => onUpdateStaffMember(emp.id, { hourlyRate: parseFloat(e.target.value) || 10.00 })} className="bg-white border rounded w-14 text-center font-bold py-0.5 outline-none border-slate-200 focus:border-amber-400" />
+                                    ) : (
+                                      <span className="text-slate-400 italic">Locked</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -1186,6 +1248,22 @@ function StaffManager({
                       </div>
                     ) : (
                       <div className="space-y-3">
+                        {(selectedStaffForProfile.status === 'pending' || selectedStaffForProfile.is_approved === false) && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center space-y-2">
+                            <span className="text-[8px] font-bold uppercase text-amber-700 block">Pending Admin Approval</span>
+                            <p className="text-[10px] text-slate-600 leading-snug">This employee account is currently pending. They cannot access schedule or payroll features until approved.</p>
+                            {isAdminOrGM && (
+                              <button 
+                                onClick={() => { 
+                                  onUpdateStaffMember(selectedStaffForProfile.id, { status: 'active', is_approved: true }); 
+                                }} 
+                                className="w-full bg-amber-400 hover:bg-amber-500 text-black font-black py-1.5 rounded transition text-[10px] cursor-pointer shadow-xs"
+                              >
+                                Approve Staff Profile
+                              </button>
+                            )}
+                          </div>
+                        )}
                         <div className="bg-slate-50 p-3 rounded-lg space-y-2">
                           <div className="grid grid-cols-2 gap-1.5">
                             <div>
@@ -1302,12 +1380,12 @@ export default function App() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [allowPublicSignUp, setAllowPublicSignUp] = useState(true);
 
-  const [selectedDateStr, setSelectedDateStr] = useState('2026-06-20');
+  const today = new Date();
+  const [selectedDateStr, setSelectedDateStr] = useState(formatDateString(today));
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
 
-  const today = new Date();
-  const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(5); // June
+  const [currentYear, setCurrentYear] = useState(today.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
   const [isStaffManagerOpen, setIsStaffManagerOpen] = useState(false);
 
   // Appended stand-alone PWA meta configurations dynamically
@@ -1372,7 +1450,9 @@ export default function App() {
 
   function updateUserRoleAndProfile(user: SupabaseUser | null) {
     if (user) {
-      let profile = staff.find(s => s.id === user.id || s.email?.toLowerCase() === user.email?.toLowerCase());
+      // Secure email matching to prevent matching empty emails
+      let profile = staff.find(s => s.id === user.id || (user.email && s.email && s.email.trim() !== '' && s.email.toLowerCase() === user.email.toLowerCase()));
+      const isOwner = user.email?.toLowerCase() === 'termz50@gmail.com' || user.email?.toLowerCase() === 'hermes.fawo@hotmail.co.uk';
       if (profile) {
         // Ensure name is never empty
         let finalName = (profile.name || '').trim();
@@ -1383,7 +1463,7 @@ export default function App() {
         }
         setCurrentUserProfile(profile);
         const r = profile.role.toLowerCase();
-        if (r.includes('admin') || r.includes('store manager')) setUserRole('Admin');
+        if (isOwner || r.includes('admin') || r.includes('store manager')) setUserRole('Admin');
         else if (r.includes('lead') || r.includes('gm') || r.includes('general manager')) setUserRole('General Manager');
         else setUserRole('Regular Staff');
 
@@ -1396,8 +1476,9 @@ export default function App() {
       } else {
         const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Staff Member').trim();
         const fallbackColor = user.user_metadata?.color || '#0A84FF';
-        const isOwner = user.email?.toLowerCase() === 'termz50@gmail.com';
         const calculatedRole = isOwner ? 'Store Manager' : 'Sales Associate';
+        const calculatedStatus = isOwner ? 'active' : 'pending';
+        const calculatedApproved = isOwner;
 
         const tempProfile: Staff = {
           id: user.id,
@@ -1407,7 +1488,9 @@ export default function App() {
           phone: 'Unlisted',
           hourlyRate: 10.00,
           bonusAdjustment: 0,
-          email: user.email?.toLowerCase() || ''
+          email: user.email?.toLowerCase() || '',
+          status: calculatedStatus,
+          is_approved: calculatedApproved
         };
 
         // Create the profile in the database cleanly and persist across views
@@ -1510,7 +1593,7 @@ export default function App() {
         setAuthSuccess('Logged in successfully!');
       } else {
         if (password !== confirmPassword) { setAuthError('Passwords do not match'); setIsSubmitting(false); return; }
-        const isOwner = email.toLowerCase() === 'termz50@gmail.com';
+        const isOwner = email.toLowerCase() === 'termz50@gmail.com' || email.toLowerCase() === 'hermes.fawo@hotmail.co.uk';
         if (!allowPublicSignUp && !isOwner) { setAuthError('Public sign-up is locked.'); setIsSubmitting(false); return; }
         if (!fullName) { setAuthError('Enter full name'); setIsSubmitting(false); return; }
 
@@ -1519,8 +1602,37 @@ export default function App() {
         const uId = data?.user?.id;
         if (!uId) throw new Error('Registration failed');
 
-        const newStaff: Staff = { id: uId, name: fullName, role: 'Sales Associate', color: selectedColor, phone: 'Unlisted', hourlyRate: 10.00, bonusAdjustment: 0, email: email.toLowerCase() };
-        await supabase.from('profiles').upsert({ id: uId, name: fullName, role: 'Sales Associate', color: selectedColor, phone: 'Unlisted', hourly_rate: 10.00, hourlyRate: 10.00, bonus_adjustment: 0, bonusAdjustment: 0, email: email.toLowerCase() });
+        const initialStatus = isOwner ? 'active' : 'pending';
+        const initialApproved = isOwner;
+
+        const newStaff: Staff = { 
+          id: uId, 
+          name: fullName, 
+          role: 'Sales Associate', 
+          color: selectedColor, 
+          phone: 'Unlisted', 
+          hourlyRate: 10.00, 
+          bonusAdjustment: 0, 
+          email: email.toLowerCase(),
+          status: initialStatus,
+          is_approved: initialApproved
+        };
+
+        await supabase.from('profiles').upsert({ 
+          id: uId, 
+          name: fullName, 
+          role: 'Sales Associate', 
+          color: selectedColor, 
+          phone: 'Unlisted', 
+          hourly_rate: 10.00, 
+          hourlyRate: 10.00, 
+          bonus_adjustment: 0, 
+          bonusAdjustment: 0, 
+          email: email.toLowerCase(),
+          status: initialStatus,
+          is_approved: initialApproved
+        });
+
         await addStaffToFirestore(newStaff);
         setAuthSuccess('Account registered successfully!');
       }
@@ -1628,7 +1740,7 @@ export default function App() {
               </div>
             )}
 
-            {authTab === 'signup' && !allowPublicSignUp && email.toLowerCase() !== 'termz50@gmail.com' && (
+            {authTab === 'signup' && !allowPublicSignUp && email.toLowerCase() !== 'termz50@gmail.com' && email.toLowerCase() !== 'hermes.fawo@hotmail.co.uk' && (
               <div className="p-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-[10px] font-medium flex gap-1"><AlertTriangle className="w-4 h-4 shrink-0" /> Public signup is locked.</div>
             )}
 
@@ -1637,6 +1749,36 @@ export default function App() {
 
             <button type="submit" disabled={isSubmitting} className="w-full py-2.5 bg-[#0B2545] text-white rounded-lg text-xs font-black hover:bg-[#134074] transition flex items-center justify-center gap-1.5 cursor-pointer">{isSubmitting ? 'Verifying...' : authTab === 'signin' ? 'Sign In' : 'Register Account'} <ArrowRight className="w-3.5 h-3.5" /></button>
           </form>
+        </div>
+      </div>
+    );
+  }
+
+  const isOwner = currentUser?.email?.toLowerCase() === 'termz50@gmail.com' || currentUser?.email?.toLowerCase() === 'hermes.fawo@hotmail.co.uk';
+
+  if (currentUser && !isOwner && (currentUserProfile?.status === 'pending' || currentUserProfile?.is_approved === false)) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden p-6 text-center space-y-4">
+          <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center mx-auto text-amber-500 border border-amber-200 animate-pulse">
+            <Clock className="w-6 h-6" />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-sm font-black text-slate-900 uppercase tracking-tight">Registration Received</h1>
+            <p className="text-xs text-slate-500 font-bold leading-snug">
+              Account Pending Admin Approval.<br />Please wait for Hermes to approve your registration.
+            </p>
+          </div>
+          <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-lg text-left text-[10px] text-amber-800 font-medium">
+            Your name is registered as: <strong className="font-extrabold text-slate-900">{currentUserProfile?.name}</strong><br />
+            Email: <strong className="font-extrabold text-slate-900">{currentUser?.email}</strong>
+          </div>
+          <button 
+            onClick={handleSignOut}
+            className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+          >
+            <LogOut className="w-3.5 h-3.5" /> Sign Out
+          </button>
         </div>
       </div>
     );
