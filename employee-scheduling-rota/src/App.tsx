@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- */ 
+ */
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -33,6 +33,32 @@ import {
   parseDateString,
   getDayShiftConfig
 } from './utils/rotaUtils';
+import { 
+  seedDatabaseIfEmpty,
+  subscribeToStaff,
+  subscribeToShifts,
+  addOrUpdateShiftInFirestore,
+  deleteShiftFromFirestore,
+  addStaffToFirestore,
+  updateStaffInFirestore,
+  deleteStaffFromFirestore,
+  subscribeToRegistrationSettings,
+  updateRegistrationSettingsInFirestore
+} from './utils/firebaseSync';
+
+// Bind database synchronization functions to window to satisfy mock hooks interface
+if (typeof window !== 'undefined') {
+  (window as any).seedDatabaseIfEmpty = seedDatabaseIfEmpty;
+  (window as any).subscribeToStaff = subscribeToStaff;
+  (window as any).subscribeToShifts = subscribeToShifts;
+  (window as any).addOrUpdateShiftInFirestore = addOrUpdateShiftInFirestore;
+  (window as any).deleteShiftFromFirestore = deleteShiftFromFirestore;
+  (window as any).addStaffToFirestore = addStaffToFirestore;
+  (window as any).updateStaffInFirestore = updateStaffInFirestore;
+  (window as any).deleteStaffFromFirestore = deleteStaffFromFirestore;
+  (window as any).subscribeToRegistrationSettings = subscribeToRegistrationSettings;
+  (window as any).updateRegistrationSettingsInFirestore = updateRegistrationSettingsInFirestore;
+}
 
 const APPLE_COLOR_PALETTE = [
   '#0A84FF', // Blue
@@ -82,9 +108,6 @@ export default function App() {
 
   // 1. Database Subscription Mock Hooks (Keep linked to your custom service endpoints)
   useEffect(() => {
-    // These mock helper configurations should be defined in your app's main data pipeline
-    if (typeof (window as any).seedDatabaseIfEmpty === 'function') (window as any).seedDatabaseIfEmpty();
-
     const unsubscribeStaff = typeof (window as any).subscribeToStaff === 'function' 
       ? (window as any).subscribeToStaff((updatedStaff: Staff[]) => setStaff(updatedStaff))
       : () => {};
@@ -373,15 +396,17 @@ export default function App() {
           options: {
             data: {
               full_name: fullName,
+              color: selectedColor,
             }
           }
         });
 
         if (error) throw error;
-        if (!data?.user) throw new Error('Failed to register user attributes.');
+        const userId = data?.user?.id;
+        if (!userId) throw new Error('Failed to register user attributes or retrieve user ID.');
         
         const newStaff: Staff = {
-          id: data.user.id,
+          id: userId,
           name: fullName,
           role: 'Sales Associate',
           color: selectedColor,
@@ -390,6 +415,26 @@ export default function App() {
           bonusAdjustment: 0,
           email: email.toLowerCase()
         };
+
+        // Write the profile record directly to the Supabase database 'profiles' table
+        const { error: profileDbError } = await supabase
+          .from('profiles')
+          .upsert({
+            id: userId,
+            name: fullName,
+            role: 'Sales Associate',
+            color: selectedColor,
+            phone: 'Unlisted',
+            hourly_rate: 10.00,
+            hourlyRate: 10.00,
+            bonus_adjustment: 0,
+            bonusAdjustment: 0,
+            email: email.toLowerCase()
+          });
+        
+        if (profileDbError) {
+          console.error('Failed to save profile to Supabase database profiles table:', profileDbError);
+        }
 
         if (typeof (window as any).addStaffToFirestore === 'function') {
           await (window as any).addStaffToFirestore(newStaff);
