@@ -27,9 +27,45 @@ const sanitize = (val: any): string => {
 const supabaseUrl = sanitize(rawUrl);
 const supabaseAnonKey = sanitize(rawKey);
 
+const createMockSupabase = () => {
+  const mockQuery: any = {
+    select: () => mockQuery,
+    eq: () => mockQuery,
+    single: () => Promise.resolve({ data: null, error: null }),
+    upsert: () => Promise.resolve({ data: null, error: null }),
+    delete: () => mockQuery,
+    then: (onfulfilled: any) => Promise.resolve({ data: null, error: null }).then(onfulfilled)
+  };
+  return {
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      signInWithPassword: () => Promise.resolve({ data: { user: null }, error: new Error('Supabase is offline/unconfigured') }),
+      signUp: () => Promise.resolve({ data: { user: null }, error: new Error('Supabase is offline/unconfigured') }),
+      signOut: () => Promise.resolve({ error: null })
+    },
+    from: () => mockQuery
+  };
+};
+
+let supabaseInstance: any;
+let isSupabaseConfiguredValue = false;
+
+try {
+  if (supabaseUrl && supabaseAnonKey) {
+    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+    isSupabaseConfiguredValue = true;
+  } else {
+    supabaseInstance = createMockSupabase();
+  }
+} catch (e) {
+  console.warn('Failed to initialize Supabase, using local fallback:', e);
+  supabaseInstance = createMockSupabase();
+}
+
 // Always marked as true since we have robust embedded fallback options
-export const isSupabaseConfigured = true;
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const isSupabaseConfigured = isSupabaseConfiguredValue;
+export const supabase = supabaseInstance;
 
 
 // --- Type Definitions ---
@@ -1380,12 +1416,42 @@ export default function App() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [allowPublicSignUp, setAllowPublicSignUp] = useState(true);
 
-  const today = new Date();
-  const [selectedDateStr, setSelectedDateStr] = useState(formatDateString(today));
+  const getSafeInitialDate = () => {
+    try {
+      const d = new Date();
+      if (!isNaN(d.getTime())) return d;
+    } catch (e) {
+      console.warn("Date error:", e);
+    }
+    return new Date(2026, 6, 20); // July 20, 2026 fallback
+  };
+
+  const getSafeFormattedDate = (date: Date) => {
+    try {
+      return formatDateString(date);
+    } catch {
+      return "2026-07-20";
+    }
+  };
+
+  const today = getSafeInitialDate();
+  const [selectedDateStr, setSelectedDateStr] = useState(() => getSafeFormattedDate(today));
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
 
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
+  const [currentYear, setCurrentYear] = useState(() => {
+    try {
+      return today.getFullYear();
+    } catch {
+      return 2026;
+    }
+  });
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    try {
+      return today.getMonth();
+    } catch {
+      return 6; // July
+    }
+  });
   const [isStaffManagerOpen, setIsStaffManagerOpen] = useState(false);
 
   // Appended stand-alone PWA meta configurations dynamically
@@ -1429,19 +1495,48 @@ export default function App() {
       setIsLoadingAuth(false);
       return;
     }
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const user = session?.user ?? null;
-      setCurrentUser(user);
-      setIsLoadingAuth(false);
-    });
+    
+    let isMounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      const user = session?.user ?? null;
-      setCurrentUser(user);
+    try {
+      supabase.auth.getSession().then((res) => {
+        if (!isMounted) return;
+        const session = res?.data?.session ?? null;
+        const user = session?.user ?? null;
+        setCurrentUser(user);
+        setIsLoadingAuth(false);
+      }).catch((err) => {
+        console.error("Error getting session:", err);
+        if (isMounted) setIsLoadingAuth(false);
+      });
+    } catch (err) {
+      console.error("Error invoking getSession:", err);
       setIsLoadingAuth(false);
-    });
+    }
 
-    return () => { subscription.unsubscribe(); };
+    let subscriptionObj: any = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange((_e, session) => {
+        if (!isMounted) return;
+        const user = session?.user ?? null;
+        setCurrentUser(user);
+        setIsLoadingAuth(false);
+      });
+      subscriptionObj = data?.subscription;
+    } catch (err) {
+      console.error("Error listening to auth state change:", err);
+    }
+
+    return () => {
+      isMounted = false;
+      if (subscriptionObj?.unsubscribe) {
+        try {
+          subscriptionObj.unsubscribe();
+        } catch (unsubErr) {
+          console.warn("Error unsubscribing auth listener:", unsubErr);
+        }
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -1451,30 +1546,30 @@ export default function App() {
   function updateUserRoleAndProfile(user: SupabaseUser | null) {
     if (user) {
       // Secure email matching to prevent matching empty emails
-      let profile = staff.find(s => s.id === user.id || (user.email && s.email && s.email.trim() !== '' && s.email.toLowerCase() === user.email.toLowerCase()));
+      let profile = staff.find(s => s && (s.id === user.id || (user.email && s.email && typeof s.email === 'string' && s.email.trim() !== '' && s.email.toLowerCase() === user.email.toLowerCase())));
       const isOwner = user.email?.toLowerCase() === 'termz50@gmail.com' || user.email?.toLowerCase() === 'hermes.fawo@hotmail.co.uk';
       if (profile) {
         // Ensure name is never empty
         let finalName = (profile.name || '').trim();
         if (!finalName) {
-          finalName = (user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Staff Member').trim();
+          finalName = (user.user_metadata?.full_name || user.user_metadata?.name || (user.email || '').split('@')[0] || 'Staff Member').trim();
           profile.name = finalName;
           updateStaffInFirestore(profile.id, { name: finalName });
         }
         setCurrentUserProfile(profile);
-        const r = profile.role.toLowerCase();
+        const r = (profile.role || 'Sales Associate').toString().toLowerCase();
         if (isOwner || r.includes('admin') || r.includes('store manager')) setUserRole('Admin');
         else if (r.includes('lead') || r.includes('gm') || r.includes('general manager')) setUserRole('General Manager');
         else setUserRole('Regular Staff');
 
         // Ensure email account binding is synchronized
-        if (user.email && (!profile.email || profile.email.toLowerCase() !== user.email.toLowerCase())) {
+        if (user.email && (!profile.email || typeof profile.email !== 'string' || profile.email.toLowerCase() !== user.email.toLowerCase())) {
           const boundEmail = user.email.toLowerCase();
           profile.email = boundEmail;
           updateStaffInFirestore(profile.id, { email: boundEmail });
         }
       } else {
-        const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Staff Member').trim();
+        const metaName = (user.user_metadata?.full_name || user.user_metadata?.name || (user.email || '').split('@')[0] || 'Staff Member').trim();
         const fallbackColor = user.user_metadata?.color || '#0A84FF';
         const calculatedRole = isOwner ? 'Store Manager' : 'Sales Associate';
         const calculatedStatus = isOwner ? 'active' : 'pending';
