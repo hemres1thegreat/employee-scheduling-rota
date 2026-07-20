@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
-import IPhoneShell from './components/IPhoneShell';
 import CalendarSection from './components/CalendarSection';
 import ShiftDetailsController from './components/ShiftDetailsController';
 import StaffManager from './components/StaffManager';
@@ -660,7 +659,7 @@ export default function App() {
   }
 
   return (
-    <IPhoneShell>
+    <div className="w-screen h-screen flex flex-col overflow-hidden bg-slate-50 font-sans">
       <header className="h-10 px-4 bg-[#0B2545] border-b border-blue-900/40 flex items-center justify-between select-none flex-shrink-0 z-20">
         <div className="flex items-center gap-2">
           <div className="w-5.5 h-5.5 rounded-lg bg-red-500 flex flex-col items-center justify-center text-white scale-90 relative shadow-sm">
@@ -771,6 +770,6 @@ export default function App() {
         shifts={shifts}
         userRole={userRole}
       />
-    </IPhoneShell>
+    </div>
   );
 }
