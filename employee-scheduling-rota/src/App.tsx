@@ -429,6 +429,8 @@ async function safeUpsert(tableName: string, payload: any) {
   return { data: null, error: lastError };
 }
 
+let isFirstFetchCompleted = false;
+
 const fetchFromSupabase = async () => {
   if (!isSupabaseConfigured) return;
   try {
@@ -486,8 +488,10 @@ const fetchFromSupabase = async () => {
         notifySettings();
       }
     }
+    isFirstFetchCompleted = true;
   } catch (err) {
     console.warn('Fallback to local storage:', err);
+    isFirstFetchCompleted = true;
   }
 };
 
@@ -1719,8 +1723,10 @@ export default function App() {
           is_approved: calculatedApproved
         };
 
-        // Create the profile in the database cleanly and persist across views
-        addStaffToFirestore(tempProfile);
+        if (isFirstFetchCompleted) {
+          // Create the profile in the database cleanly and persist across views
+          addStaffToFirestore(tempProfile);
+        }
 
         setCurrentUserProfile(tempProfile);
         if (isOwner) setUserRole('Admin');
