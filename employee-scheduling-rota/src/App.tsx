@@ -1819,7 +1819,11 @@ export default function App() {
         setAuthSuccess('Account registered successfully!');
       }
     } catch (err: any) {
-      setAuthError(err.message || 'An authentication error occurred.');
+      let msg = err?.message || 'An authentication error occurred.';
+      if (msg.includes('Failed to fetch')) {
+        msg = 'Connection error. Please check your internet or disable ad-blockers.';
+      }
+      setAuthError(msg);
     } finally {
       setIsSubmitting(false);
     }
