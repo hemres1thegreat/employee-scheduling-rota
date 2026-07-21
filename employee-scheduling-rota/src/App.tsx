@@ -1820,8 +1820,9 @@ export default function App() {
       }
     } catch (err: any) {
       let msg = err?.message || 'An authentication error occurred.';
-      if (msg.includes('Failed to fetch')) {
-        msg = 'Connection error. Please check your internet or disable ad-blockers.';
+      const lowerMsg = msg.toLowerCase();
+      if (lowerMsg.includes('failed to fetch') || lowerMsg.includes('network') || lowerMsg.includes('load failed') || lowerMsg.includes('connection') || err?.status === 0 || err?.name === 'TypeError') {
+        msg = 'Unable to reach server. Please check your internet connection or disable ad-blockers.';
       }
       setAuthError(msg);
     } finally {
