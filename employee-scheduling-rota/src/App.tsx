@@ -14,49 +14,8 @@ import {
 } from 'lucide-react';
 import { createClient, User as SupabaseUser } from '@supabase/supabase-js';
 
-// Clean up any surrounding quotes or spaces that might have been included in the environment setup
-const sanitize = (val: any): string => {
-  if (typeof val !== 'string') return '';
-  return val.replace(/^['"]|['"]$/g, '').trim();
-};
-
-const metaEnv = (import.meta as any).env || {};
-const SUPABASE_URL = sanitize(metaEnv.VITE_SUPABASE_URL || 'https://undylmbxyqbndepxpda.supabase.co');
-const SUPABASE_KEY = sanitize(metaEnv.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrl4iU4x33H5V' || '');
-
-const createMockSupabase = () => {
-  const mockQuery: any = {
-    select: () => mockQuery,
-    eq: () => mockQuery,
-    single: () => Promise.resolve({ data: null, error: null }),
-    upsert: () => Promise.resolve({ data: null, error: null }),
-    delete: () => mockQuery,
-    then: (onfulfilled: any) => Promise.resolve({ data: null, error: null }).then(onfulfilled)
-  };
-  return {
-    auth: {
-      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
-      signInWithPassword: ({ email, password }: any) => Promise.resolve({ data: { user: null }, error: new Error('Supabase configuration is incorrect or offline') }),
-      signUp: ({ email, password }: any) => Promise.resolve({ data: { user: null }, error: new Error('Supabase configuration is incorrect or offline') }),
-      signOut: () => Promise.resolve({ error: null })
-    },
-    from: () => mockQuery
-  };
-};
-
-let supabaseInstance: any;
-try {
-  if (!SUPABASE_URL || !SUPABASE_KEY) {
-    throw new Error('Supabase URL or Key is missing');
-  }
-  supabaseInstance = createClient(SUPABASE_URL, SUPABASE_KEY);
-} catch (e) {
-  console.warn('Failed to initialize Supabase, using mock fallback:', e);
-  supabaseInstance = createMockSupabase();
-}
-
-export const supabase = supabaseInstance;
+// Initialize supabase directly using the hardcoded credentials
+export const supabase = createClient("https://undylmbxyqbndepxpda.supabase.co", "sb_publishable_pRLDrl4iU4x33H5V");
 export const isSupabaseConfigured = true;
 export const supabaseConfigMissing = false;
 
@@ -1808,7 +1767,6 @@ export default function App() {
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(''); setAuthSuccess(''); setIsSubmitting(true);
-    if (!isSupabaseConfigured) { setAuthError('Supabase config is missing.'); setIsSubmitting(false); return; }
 
     try {
       if (authTab === 'signin') {
