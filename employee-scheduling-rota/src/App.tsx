@@ -271,15 +271,35 @@ const dbStaffObject = (s: Staff) => ({
   is_approved: s.is_approved !== undefined ? s.is_approved : (s.status !== 'pending')
 });
 
+const parseArrayField = (field: any): string[] => {
+  if (Array.isArray(field)) return field;
+  if (typeof field === 'string') {
+    const trimmed = field.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed.map(String);
+      } catch {}
+    }
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      const cleaned = trimmed.slice(1, -1);
+      if (!cleaned) return [];
+      return cleaned.split(',').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean);
+    }
+    return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+};
+
 const mapDbShift = (row: any): Shift => ({
   id: row.id,
   dateString: row.dateString || row.date_string || '',
   type: row.type || 'Morning',
   startTime: row.startTime || row.start_time || '09:30',
   endTime: row.endTime || row.end_time || '14:30',
-  assignedStaffIds: Array.isArray(row.assignedStaffIds) ? row.assignedStaffIds : (Array.isArray(row.assigned_staff_ids) ? row.assigned_staff_ids : []),
+  assignedStaffIds: parseArrayField(row.assignedStaffIds !== undefined ? row.assignedStaffIds : row.assigned_staff_ids),
   notes: row.notes || '',
-  requestedStaffIds: Array.isArray(row.requestedStaffIds) ? row.requestedStaffIds : (Array.isArray(row.requested_staff_ids) ? row.requested_staff_ids : [])
+  requestedStaffIds: parseArrayField(row.requestedStaffIds !== undefined ? row.requestedStaffIds : row.requested_staff_ids)
 });
 
 const dbShiftObject = (s: Shift) => ({
@@ -306,71 +326,107 @@ const notifyStaff = () => staffSubscribers.forEach(cb => cb([...currentStaffStat
 const notifyShifts = () => shiftsSubscribers.forEach(cb => cb([...currentShiftsState]));
 const notifySettings = () => settingsSubscribers.forEach(cb => cb({ ...currentSettingsState }));
 
-let profilesTableColumns: string[] = [];
-let shiftsTableColumns: string[] = [];
-let settingsTableColumns: string[] = [];
+let detectedColumnKeys: Record<string, string[]> = {
+  profiles: [],
+  shifts: [],
+  settings: []
+};
+let detectedArrayFormat: Record<string, 'none' | 'postgres' | 'json' | 'comma'> = {
+  profiles: 'none',
+  shifts: 'none',
+  settings: 'none'
+};
+
+function formatPayloadArrays(payload: any, format: 'json' | 'postgres' | 'comma' | 'none') {
+  const result = { ...payload };
+  Object.keys(result).forEach(key => {
+    const val = result[key];
+    if (Array.isArray(val)) {
+      if (format === 'json') {
+        result[key] = JSON.stringify(val);
+      } else if (format === 'postgres') {
+        const escaped = val.map(item => {
+          const str = String(item);
+          if (str.includes(',') || str.includes('"') || str.includes('\\') || str.includes('{') || str.includes('}')) {
+            return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+          }
+          return str;
+        });
+        result[key] = `{${escaped.join(',')}}`;
+      } else if (format === 'comma') {
+        result[key] = val.join(',');
+      }
+    }
+  });
+  return result;
+}
+
+const getKeysForStyle = (payload: any, style: string) => {
+  if (style === 'dual') return payload;
+  const filtered: any = {};
+  Object.keys(payload).forEach(k => {
+    if (style === 'snake') {
+      if (!/[A-Z]/.test(k) || k === 'id') {
+        filtered[k] = payload[k];
+      }
+    } else if (style === 'camel') {
+      if (!k.includes('_') || k === 'id') {
+        filtered[k] = payload[k];
+      }
+    }
+  });
+  return filtered;
+};
 
 async function safeUpsert(tableName: string, payload: any) {
   if (!isSupabaseConfigured) return { data: null, error: null };
-  
-  let columns = tableName === 'profiles' ? profilesTableColumns : (tableName === 'shifts' ? shiftsTableColumns : settingsTableColumns);
-  let filteredPayload = { ...payload };
-  if (columns && columns.length > 0) {
-    filteredPayload = {};
+
+  const knownKeys = detectedColumnKeys[tableName] || [];
+  const knownFormat = detectedArrayFormat[tableName] || 'none';
+
+  if (knownKeys.length > 0) {
+    let filteredPayload: any = {};
     Object.keys(payload).forEach(k => {
-      if (columns.includes(k)) {
+      if (knownKeys.includes(k)) {
         filteredPayload[k] = payload[k];
       }
     });
+    filteredPayload = formatPayloadArrays(filteredPayload, knownFormat);
+    const { data, error } = await supabase.from(tableName).upsert(filteredPayload);
+    if (!error) {
+      return { data, error };
+    }
+    console.warn(`Upsert with known schema failed. Resetting schema cache for ${tableName}...`, error);
+    detectedColumnKeys[tableName] = [];
   }
 
-  const { data, error } = await supabase.from(tableName).upsert(filteredPayload);
-  if (!error) {
-    return { data, error };
+  const keyStyles = ['dual', 'snake', 'camel'];
+  const arrayFormats: ('none' | 'postgres' | 'json' | 'comma')[] = ['none', 'postgres', 'json', 'comma'];
+
+  let lastError: any = null;
+
+  for (const style of keyStyles) {
+    for (const format of arrayFormats) {
+      let candidate = getKeysForStyle(payload, style);
+      candidate = formatPayloadArrays(candidate, format);
+
+      try {
+        const { data, error } = await supabase.from(tableName).upsert(candidate);
+        if (!error) {
+          detectedColumnKeys[tableName] = Object.keys(candidate);
+          detectedArrayFormat[tableName] = format;
+          console.log(`Successfully learned schema for ${tableName}:`, { keys: detectedColumnKeys[tableName], format });
+          return { data, error };
+        }
+        lastError = error;
+      } catch (err) {
+        lastError = err;
+      }
+    }
   }
 
-  const errCode = (error as any).code || '';
-  const errMsg = (error as any).message || '';
-  
-  if (errCode === '42703' || errMsg.includes('column') || errMsg.includes('does not exist')) {
-    console.warn(`Upsert failed due to missing columns on ${tableName}. Retrying with filtered styles...`, error);
-    
-    // Retry with snake_case only
-    const snakeCasePayload: any = {};
-    Object.keys(payload).forEach(k => {
-      if (!/[A-Z]/.test(k)) {
-        snakeCasePayload[k] = payload[k];
-      }
-    });
-    
-    const resSnake = await supabase.from(tableName).upsert(snakeCasePayload);
-    if (!resSnake.error) {
-      if (tableName === 'profiles') profilesTableColumns = Object.keys(snakeCasePayload);
-      else if (tableName === 'shifts') shiftsTableColumns = Object.keys(snakeCasePayload);
-      else if (tableName === 'settings') settingsTableColumns = Object.keys(snakeCasePayload);
-      return resSnake;
-    }
-    
-    // Retry with camelCase only
-    const camelCasePayload: any = {};
-    Object.keys(payload).forEach(k => {
-      if (!k.includes('_') || k === 'id') {
-        camelCasePayload[k] = payload[k];
-      }
-    });
-    
-    const resCamel = await supabase.from(tableName).upsert(camelCasePayload);
-    if (!resCamel.error) {
-      if (tableName === 'profiles') profilesTableColumns = Object.keys(camelCasePayload);
-      else if (tableName === 'shifts') shiftsTableColumns = Object.keys(camelCasePayload);
-      else if (tableName === 'settings') settingsTableColumns = Object.keys(camelCasePayload);
-      return resCamel;
-    }
-    
-    return resCamel;
-  }
-  
-  return { data, error };
+  console.error(`All upsert attempts failed for ${tableName}:`, lastError);
+  return { data: null, error: lastError };
 }
 
 const fetchFromSupabase = async () => {
@@ -379,7 +435,7 @@ const fetchFromSupabase = async () => {
     const { data: dbProfiles } = await supabase.from('profiles').select('*');
     if (dbProfiles) {
       if (dbProfiles.length > 0) {
-        profilesTableColumns = Object.keys(dbProfiles[0]);
+        detectedColumnKeys['profiles'] = Object.keys(dbProfiles[0]);
       }
       const dbStaff = dbProfiles.map(mapDbStaff);
       const deletedStaffIds = getDeletedStaffIds();
@@ -401,7 +457,7 @@ const fetchFromSupabase = async () => {
     const { data: dbShifts } = await supabase.from('shifts').select('*');
     if (dbShifts) {
       if (dbShifts.length > 0) {
-        shiftsTableColumns = Object.keys(dbShifts[0]);
+        detectedColumnKeys['shifts'] = Object.keys(dbShifts[0]);
       }
       const dbSh = dbShifts.map(mapDbShift);
       const deletedShiftIds = getDeletedShiftIds();
@@ -422,7 +478,7 @@ const fetchFromSupabase = async () => {
     }
     const { data: dbSettings } = await supabase.from('settings').select('*').eq('id', 'registration').single();
     if (dbSettings) {
-      settingsTableColumns = Object.keys(dbSettings);
+      detectedColumnKeys['settings'] = Object.keys(dbSettings);
       const allow = dbSettings.allowPublicSignUp !== undefined ? dbSettings.allowPublicSignUp : dbSettings.allow_public_sign_up;
       if (typeof allow === 'boolean') {
         currentSettingsState.allowPublicSignUp = allow;
