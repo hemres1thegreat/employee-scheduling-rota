@@ -14,9 +14,18 @@ import {
 } from 'lucide-react';
 import { createClient, User as SupabaseUser } from '@supabase/supabase-js';
 
+declare global {
+  interface ImportMeta {
+    readonly env: {
+      readonly VITE_SUPABASE_URL?: string;
+      readonly VITE_SUPABASE_ANON_KEY?: string;
+    };
+  }
+}
+
 // Retrieve values from import.meta.env with fallback to embedded credentials
-let rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://undylmbxyqbndepxpda.supabase.co';
-let rawKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrMDIkP6wN_G953anvw_-Vk0hTnC';
+const rawUrl = import.meta.env?.VITE_SUPABASE_URL || 'https://undylmbxyqbndepxpda.supabase.co';
+const rawKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrl4iU4x33H5V';
 
 // Clean up any surrounding quotes or spaces that might have been included in the environment setup
 const sanitize = (val: any): string => {
@@ -27,46 +36,10 @@ const sanitize = (val: any): string => {
 const supabaseUrl = sanitize(rawUrl);
 const supabaseAnonKey = sanitize(rawKey);
 
-const createMockSupabase = () => {
-  const mockQuery: any = {
-    select: () => mockQuery,
-    eq: () => mockQuery,
-    single: () => Promise.resolve({ data: null, error: null }),
-    upsert: () => Promise.resolve({ data: null, error: null }),
-    delete: () => mockQuery,
-    then: (onfulfilled: any) => Promise.resolve({ data: null, error: null }).then(onfulfilled)
-  };
-  return {
-    auth: {
-      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
-      signInWithPassword: () => Promise.resolve({ data: { user: null }, error: new Error('Supabase is offline/unconfigured') }),
-      signUp: () => Promise.resolve({ data: { user: null }, error: new Error('Supabase is offline/unconfigured') }),
-      signOut: () => Promise.resolve({ error: null })
-    },
-    from: () => mockQuery
-  };
-};
-
-let supabaseInstance: any;
-let isSupabaseConfiguredValue = false;
-
-try {
-  if (supabaseUrl && supabaseAnonKey) {
-    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
-    isSupabaseConfiguredValue = true;
-  } else {
-    supabaseInstance = createMockSupabase();
-  }
-} catch (e) {
-  console.warn('Failed to initialize Supabase, using local fallback:', e);
-  supabaseInstance = createMockSupabase();
-}
-
-// Always marked as true since we have robust embedded fallback options
+// Initialize supabase directly using createClient
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export const isSupabaseConfigured = true;
 export const supabaseConfigMissing = false;
-export const supabase = supabaseInstance;
 
 
 // --- Type Definitions ---
