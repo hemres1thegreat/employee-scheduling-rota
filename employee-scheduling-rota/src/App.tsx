@@ -14,30 +14,49 @@ import {
 } from 'lucide-react';
 import { createClient, User as SupabaseUser } from '@supabase/supabase-js';
 
-declare global {
-  interface ImportMeta {
-    readonly env: {
-      readonly VITE_SUPABASE_URL?: string;
-      readonly VITE_SUPABASE_ANON_KEY?: string;
-    };
-  }
-}
-
-// Retrieve values from import.meta.env with fallback to embedded credentials
-const rawUrl = import.meta.env?.VITE_SUPABASE_URL || 'https://undylmbxyqbndepxpda.supabase.co';
-const rawKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrl4iU4x33H5V';
-
 // Clean up any surrounding quotes or spaces that might have been included in the environment setup
 const sanitize = (val: any): string => {
   if (typeof val !== 'string') return '';
   return val.replace(/^['"]|['"]$/g, '').trim();
 };
 
-const supabaseUrl = sanitize(rawUrl);
-const supabaseAnonKey = sanitize(rawKey);
+const metaEnv = (import.meta as any).env || {};
+const SUPABASE_URL = sanitize(metaEnv.VITE_SUPABASE_URL || 'https://undylmbxyqbndepxpda.supabase.co');
+const SUPABASE_KEY = sanitize(metaEnv.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrl4iU4x33H5V' || '');
 
-// Initialize supabase directly using createClient
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const createMockSupabase = () => {
+  const mockQuery: any = {
+    select: () => mockQuery,
+    eq: () => mockQuery,
+    single: () => Promise.resolve({ data: null, error: null }),
+    upsert: () => Promise.resolve({ data: null, error: null }),
+    delete: () => mockQuery,
+    then: (onfulfilled: any) => Promise.resolve({ data: null, error: null }).then(onfulfilled)
+  };
+  return {
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      signInWithPassword: ({ email, password }: any) => Promise.resolve({ data: { user: null }, error: new Error('Supabase configuration is incorrect or offline') }),
+      signUp: ({ email, password }: any) => Promise.resolve({ data: { user: null }, error: new Error('Supabase configuration is incorrect or offline') }),
+      signOut: () => Promise.resolve({ error: null })
+    },
+    from: () => mockQuery
+  };
+};
+
+let supabaseInstance: any;
+try {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error('Supabase URL or Key is missing');
+  }
+  supabaseInstance = createClient(SUPABASE_URL, SUPABASE_KEY);
+} catch (e) {
+  console.warn('Failed to initialize Supabase, using mock fallback:', e);
+  supabaseInstance = createMockSupabase();
+}
+
+export const supabase = supabaseInstance;
 export const isSupabaseConfigured = true;
 export const supabaseConfigMissing = false;
 
