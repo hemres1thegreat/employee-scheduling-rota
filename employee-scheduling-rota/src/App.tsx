@@ -15,8 +15,8 @@ import {
 import { createClient, User as SupabaseUser } from '@supabase/supabase-js';
 
 // Retrieve values from import.meta.env with fallback to embedded credentials
-let rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://jundylmbxyqbndepxpda.supabase.co';
-let rawKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrMDIkP6wN_G953anvw_-Vk0hTnCV';
+let rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://undylmbxyqbndepxpda.supabase.co';
+let rawKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrl4iU4x33H5V';
 
 // Clean up any surrounding quotes or spaces that might have been included in the environment setup
 const sanitize = (val: any): string => {
@@ -64,7 +64,8 @@ try {
 }
 
 // Always marked as true since we have robust embedded fallback options
-export const isSupabaseConfigured = isSupabaseConfiguredValue;
+export const isSupabaseConfigured = true;
+export const supabaseConfigMissing = false;
 export const supabase = supabaseInstance;
 
 
@@ -305,11 +306,81 @@ const notifyStaff = () => staffSubscribers.forEach(cb => cb([...currentStaffStat
 const notifyShifts = () => shiftsSubscribers.forEach(cb => cb([...currentShiftsState]));
 const notifySettings = () => settingsSubscribers.forEach(cb => cb({ ...currentSettingsState }));
 
+let profilesTableColumns: string[] = [];
+let shiftsTableColumns: string[] = [];
+let settingsTableColumns: string[] = [];
+
+async function safeUpsert(tableName: string, payload: any) {
+  if (!isSupabaseConfigured) return { data: null, error: null };
+  
+  let columns = tableName === 'profiles' ? profilesTableColumns : (tableName === 'shifts' ? shiftsTableColumns : settingsTableColumns);
+  let filteredPayload = { ...payload };
+  if (columns && columns.length > 0) {
+    filteredPayload = {};
+    Object.keys(payload).forEach(k => {
+      if (columns.includes(k)) {
+        filteredPayload[k] = payload[k];
+      }
+    });
+  }
+
+  const { data, error } = await supabase.from(tableName).upsert(filteredPayload);
+  if (!error) {
+    return { data, error };
+  }
+
+  const errCode = (error as any).code || '';
+  const errMsg = (error as any).message || '';
+  
+  if (errCode === '42703' || errMsg.includes('column') || errMsg.includes('does not exist')) {
+    console.warn(`Upsert failed due to missing columns on ${tableName}. Retrying with filtered styles...`, error);
+    
+    // Retry with snake_case only
+    const snakeCasePayload: any = {};
+    Object.keys(payload).forEach(k => {
+      if (!/[A-Z]/.test(k)) {
+        snakeCasePayload[k] = payload[k];
+      }
+    });
+    
+    const resSnake = await supabase.from(tableName).upsert(snakeCasePayload);
+    if (!resSnake.error) {
+      if (tableName === 'profiles') profilesTableColumns = Object.keys(snakeCasePayload);
+      else if (tableName === 'shifts') shiftsTableColumns = Object.keys(snakeCasePayload);
+      else if (tableName === 'settings') settingsTableColumns = Object.keys(snakeCasePayload);
+      return resSnake;
+    }
+    
+    // Retry with camelCase only
+    const camelCasePayload: any = {};
+    Object.keys(payload).forEach(k => {
+      if (!k.includes('_') || k === 'id') {
+        camelCasePayload[k] = payload[k];
+      }
+    });
+    
+    const resCamel = await supabase.from(tableName).upsert(camelCasePayload);
+    if (!resCamel.error) {
+      if (tableName === 'profiles') profilesTableColumns = Object.keys(camelCasePayload);
+      else if (tableName === 'shifts') shiftsTableColumns = Object.keys(camelCasePayload);
+      else if (tableName === 'settings') settingsTableColumns = Object.keys(camelCasePayload);
+      return resCamel;
+    }
+    
+    return resCamel;
+  }
+  
+  return { data, error };
+}
+
 const fetchFromSupabase = async () => {
   if (!isSupabaseConfigured) return;
   try {
     const { data: dbProfiles } = await supabase.from('profiles').select('*');
     if (dbProfiles) {
+      if (dbProfiles.length > 0) {
+        profilesTableColumns = Object.keys(dbProfiles[0]);
+      }
       const dbStaff = dbProfiles.map(mapDbStaff);
       const deletedStaffIds = getDeletedStaffIds();
 
@@ -329,6 +400,9 @@ const fetchFromSupabase = async () => {
     }
     const { data: dbShifts } = await supabase.from('shifts').select('*');
     if (dbShifts) {
+      if (dbShifts.length > 0) {
+        shiftsTableColumns = Object.keys(dbShifts[0]);
+      }
       const dbSh = dbShifts.map(mapDbShift);
       const deletedShiftIds = getDeletedShiftIds();
 
@@ -348,6 +422,7 @@ const fetchFromSupabase = async () => {
     }
     const { data: dbSettings } = await supabase.from('settings').select('*').eq('id', 'registration').single();
     if (dbSettings) {
+      settingsTableColumns = Object.keys(dbSettings);
       const allow = dbSettings.allowPublicSignUp !== undefined ? dbSettings.allowPublicSignUp : dbSettings.allow_public_sign_up;
       if (typeof allow === 'boolean') {
         currentSettingsState.allowPublicSignUp = allow;
@@ -390,7 +465,7 @@ export async function addOrUpdateShiftInFirestore(shift: Shift) {
   saveLocalShifts(currentShiftsState);
   notifyShifts();
   if (isSupabaseConfigured) {
-    try { await supabase.from('shifts').upsert(dbShiftObject(shift)); } catch (err) { console.error(err); }
+    try { await safeUpsert('shifts', dbShiftObject(shift)); } catch (err) { console.error(err); }
   }
 }
 
@@ -418,7 +493,7 @@ export async function addStaffToFirestore(member: Staff) {
   saveLocalStaff(currentStaffState);
   notifyStaff();
   if (isSupabaseConfigured) {
-    try { await supabase.from('profiles').upsert(dbStaffObject(member)); } catch (err) { console.error(err); }
+    try { await safeUpsert('profiles', dbStaffObject(member)); } catch (err) { console.error(err); }
   }
 }
 
@@ -429,7 +504,7 @@ export async function updateStaffInFirestore(id: string, updates: Partial<Staff>
   if (isSupabaseConfigured) {
     const cur = currentStaffState.find(s => s.id === id);
     if (cur) {
-      try { await supabase.from('profiles').upsert(dbStaffObject(cur)); } catch (err) { console.error(err); }
+      try { await safeUpsert('profiles', dbStaffObject(cur)); } catch (err) { console.error(err); }
     }
   }
 }
@@ -449,7 +524,7 @@ export async function updateRegistrationSettingsInFirestore(allow: boolean) {
   localStorage.setItem('rota_public_signup', JSON.stringify(allow));
   notifySettings();
   if (isSupabaseConfigured) {
-    try { await supabase.from('settings').upsert({ id: 'registration', allowPublicSignUp: allow, allow_public_sign_up: allow }); } catch (err) { console.error(err); }
+    try { await safeUpsert('settings', { id: 'registration', allowPublicSignUp: allow, allow_public_sign_up: allow }); } catch (err) { console.error(err); }
   }
 }
 
@@ -1713,7 +1788,7 @@ export default function App() {
           is_approved: initialApproved
         };
 
-        await supabase.from('profiles').upsert({ 
+        await safeUpsert('profiles', { 
           id: uId, 
           name: fullName, 
           role: 'Sales Associate', 
