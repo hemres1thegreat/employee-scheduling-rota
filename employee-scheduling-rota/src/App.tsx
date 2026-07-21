@@ -16,7 +16,7 @@ import { createClient, User as SupabaseUser } from '@supabase/supabase-js';
 
 // Retrieve values from import.meta.env with fallback to embedded credentials
 let rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://undylmbxyqbndepxpda.supabase.co';
-let rawKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrl4iU4x33H5V';
+let rawKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_pRLDrMDIkP6wN_G953anvw_-Vk0hTnC';
 
 // Clean up any surrounding quotes or spaces that might have been included in the environment setup
 const sanitize = (val: any): string => {
@@ -305,7 +305,7 @@ const mapDbShift = (row: any): Shift => ({
 const dbShiftObject = (s: Shift) => ({
   id: s.id, dateString: s.dateString, date_string: s.dateString, type: s.type,
   startTime: s.startTime, start_time: s.startTime, endTime: s.endTime, end_time: s.endTime,
-  assignedStaffIds: s.assignedStaffIds, assigned_staff_ids: s.assignedStaffIds, notes: s.notes || '',
+  assignedStaffIds: s.assignedStaffIds || [], assigned_staff_ids: s.assignedStaffIds || [], notes: s.notes || '',
   requestedStaffIds: s.requestedStaffIds || [], requested_staff_ids: s.requestedStaffIds || []
 });
 
