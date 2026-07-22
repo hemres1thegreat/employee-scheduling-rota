@@ -34,7 +34,7 @@ export interface Staff {
   hourlyRate?: number;
   bonusAdjustment?: number;
   email?: string;
-  status?: 'active' | 'pending';
+  status?: 'active' | 'pending' | 'approved';
   is_approved?: boolean;
 }
 
@@ -195,9 +195,11 @@ const mapDbStaff = (row: any): Staff => {
   if (!finalName) {
     finalName = 'Staff Member';
   }
-  let status: 'active' | 'pending' = 'active';
+  let status: 'active' | 'pending' | 'approved' = 'active';
   if (row.status === 'pending' || row.is_approved === false) {
     status = 'pending';
+  } else if (row.status === 'approved') {
+    status = 'approved';
   }
   return {
     id: row.id,
@@ -210,7 +212,7 @@ const mapDbStaff = (row: any): Staff => {
     bonusAdjustment: typeof row.bonusAdjustment === 'number' ? row.bonusAdjustment : (typeof row.bonus_adjustment === 'number' ? row.bonus_adjustment : 0),
     email: row.email || '',
     status: status,
-    is_approved: row.is_approved !== undefined ? row.is_approved : (status === 'active')
+    is_approved: row.is_approved !== undefined ? row.is_approved : (status !== 'pending')
   };
 };
 
@@ -780,12 +782,51 @@ function ShiftDetailsController({
     setCustomNote('');
   };
 
+  const isAdminOrGM = userRole === 'Admin' || userRole === 'General Manager';
+  const pendingStaff = staff.filter(s => s.status === 'pending' || s.is_approved === false);
+
   return (
     <div className="flex flex-col h-full bg-white p-3 overflow-y-auto">
-      <div className="mb-3">
-        <span className="text-amber-500 text-[10px] font-extrabold uppercase flex items-center gap-1"><CalendarDays className="w-4 h-4" /> Shift Planner</span>
-        <h2 className="text-xs sm:text-sm font-bold text-slate-800 mt-0.5">{parsedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h2>
+      <div className="mb-3 flex justify-between items-start">
+        <div>
+          <span className="text-amber-500 text-[10px] font-extrabold uppercase flex items-center gap-1"><CalendarDays className="w-4 h-4" /> Shift Planner</span>
+          <h2 className="text-xs sm:text-sm font-bold text-slate-800 mt-0.5">{parsedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h2>
+        </div>
       </div>
+
+      {isAdminOrGM && pendingStaff.length > 0 && (
+        <div className="mb-4 bg-amber-50/50 border-2 border-amber-200 rounded-xl p-3 select-none">
+          <div className="flex items-center gap-1.5 mb-2">
+            <UserCheck className="w-4 h-4 text-amber-600 animate-pulse" />
+            <span className="text-[10px] font-black text-amber-800 uppercase tracking-wider">
+              Approve Users ({pendingStaff.length})
+            </span>
+          </div>
+          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+            {pendingStaff.map(emp => (
+              <div key={emp.id} className="bg-white p-2 border border-amber-100 rounded-lg flex justify-between items-center text-[10px]">
+                <div className="min-w-0 flex-1 pr-2">
+                  <div className="font-extrabold text-slate-800 truncate">{emp.name}</div>
+                  <div className="text-slate-500 text-[8px] font-mono truncate">{emp.email || 'No email'}</div>
+                </div>
+                <button 
+                  onClick={async (e) => { 
+                    e.stopPropagation(); 
+                    try {
+                      await updateStaffInFirestore(emp.id, { status: 'approved', is_approved: true }); 
+                    } catch (err) {
+                      console.error("Error approving user:", err);
+                    }
+                  }} 
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white font-black text-[9px] px-2.5 py-1 rounded shadow-xs transition cursor-pointer flex items-center gap-1 shrink-0"
+                >
+                  <Check className="w-3 h-3" /> Approve
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!config.isOpen ? (
         <div className="flex-1 flex flex-col items-center justify-center p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
@@ -1183,7 +1224,7 @@ function StaffManager({
                                 <button 
                                   onClick={(e) => { 
                                     e.stopPropagation(); 
-                                    onUpdateStaffMember(emp.id, { status: 'active', is_approved: true }); 
+                                    onUpdateStaffMember(emp.id, { status: 'approved', is_approved: true }); 
                                   }} 
                                   className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[8px] px-2 py-1 rounded transition cursor-pointer"
                                 >
@@ -1377,7 +1418,7 @@ function StaffManager({
                             {isAdminOrGM && (
                               <button 
                                 onClick={() => { 
-                                  onUpdateStaffMember(selectedStaffForProfile.id, { status: 'active', is_approved: true }); 
+                                  onUpdateStaffMember(selectedStaffForProfile.id, { status: 'approved', is_approved: true }); 
                                 }} 
                                 className="w-full bg-amber-400 hover:bg-amber-500 text-black font-black py-1.5 rounded transition text-[10px] cursor-pointer shadow-xs"
                               >
@@ -1770,8 +1811,20 @@ export default function App() {
 
     try {
       if (authTab === 'signin') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        
+        const uId = authData?.user?.id;
+        const isOwner = email.toLowerCase() === 'termz50@gmail.com' || email.toLowerCase() === 'hermes.fawo@hotmail.co.uk';
+        if (uId && !isOwner) {
+          const { data: profileData } = await supabase.from('profiles').select('status, is_approved').eq('id', uId).single();
+          if (profileData) {
+            if (profileData.status === 'pending' || profileData.is_approved === false) {
+              await supabase.auth.signOut();
+              throw new Error('Your account is awaiting manager approval. Please contact your manager.');
+            }
+          }
+        }
         setAuthSuccess('Logged in successfully!');
       } else {
         if (password !== confirmPassword) { setAuthError('Passwords do not match'); setIsSubmitting(false); return; }
@@ -1784,13 +1837,14 @@ export default function App() {
         const uId = data?.user?.id;
         if (!uId) throw new Error('Registration failed');
 
-        const initialStatus = isOwner ? 'active' : 'pending';
+        const initialStatus = isOwner ? 'approved' : 'pending';
         const initialApproved = isOwner;
+        const initialRole = isOwner ? 'Store Manager' : 'employee';
 
         const newStaff: Staff = { 
           id: uId, 
           name: fullName, 
-          role: 'Sales Associate', 
+          role: initialRole, 
           color: selectedColor, 
           phone: 'Unlisted', 
           hourlyRate: 10.00, 
@@ -1803,7 +1857,7 @@ export default function App() {
         await safeUpsert('profiles', { 
           id: uId, 
           name: fullName, 
-          role: 'Sales Associate', 
+          role: initialRole, 
           color: selectedColor, 
           phone: 'Unlisted', 
           hourly_rate: 10.00, 
@@ -1951,9 +2005,9 @@ export default function App() {
             <Clock className="w-6 h-6" />
           </div>
           <div className="space-y-1.5">
-            <h1 className="text-sm font-black text-slate-900 uppercase tracking-tight">Registration Received</h1>
+            <h1 className="text-sm font-black text-slate-900 uppercase tracking-tight">Awaiting Approval</h1>
             <p className="text-xs text-slate-500 font-bold leading-snug">
-              Account Pending Admin Approval.<br />Please wait for Hermes to approve your registration.
+              Your account is awaiting manager approval. Please contact your manager.
             </p>
           </div>
           <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-lg text-left text-[10px] text-amber-800 font-medium">
@@ -1962,9 +2016,9 @@ export default function App() {
           </div>
           <button 
             onClick={handleSignOut}
-            className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+            className="w-full py-2 bg-[#0B2545] hover:bg-[#134074] text-white rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
           >
-            <LogOut className="w-3.5 h-3.5" /> Sign Out
+            <LogOut className="w-3.5 h-3.5" /> Return to Sign In
           </button>
         </div>
       </div>
