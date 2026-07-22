@@ -15,7 +15,7 @@ import {
 import { createClient, User as SupabaseUser } from '@supabase/supabase-js';
 
 // Initialize supabase directly using the hardcoded credentials
-export const supabase = createClient("https://undylmbxyqbndepxpda.supabase.co", "sb_publishable_pRLDrl4iU4x33H5V");
+export const supabase = createClient("https://jundylmbxyqbndepxpda.supabase.co", "sb_publishable_pRLDrMDIkP8wN_C053anvw_-Vk0hTnC");
 export const isSupabaseConfigured = true;
 export const supabaseConfigMissing = false;
 
@@ -1822,7 +1822,7 @@ export default function App() {
       let msg = err?.message || 'An authentication error occurred.';
       const lowerMsg = msg.toLowerCase();
       if (lowerMsg.includes('failed to fetch') || lowerMsg.includes('network') || lowerMsg.includes('load failed') || lowerMsg.includes('connection') || err?.status === 0 || err?.name === 'TypeError') {
-        msg = 'Unable to reach server. Please check your internet connection or disable ad-blockers.';
+        msg = 'Connection error: Unable to reach Supabase. Please check your internet connection or disable ad-blockers.';
       }
       setAuthError(msg);
     } finally {
