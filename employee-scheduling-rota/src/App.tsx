@@ -217,10 +217,11 @@ const mapDbStaff = (row: any): Staff => {
 };
 
 const dbStaffObject = (s: Staff) => ({
-  id: s.id, name: s.name, role: s.role, color: s.color, phone: s.phone || 'Unlisted',
-  hourly_rate: s.hourlyRate ?? 10.00, hourlyRate: s.hourlyRate ?? 10.00,
-  bonus_adjustment: s.bonusAdjustment ?? 0, bonusAdjustment: s.bonusAdjustment ?? 0, email: s.email || '',
-  status: s.status || 'active',
+  id: s.id,
+  email: s.email || '',
+  role: s.role || 'Sales Associate',
+  'full-name': s.name,
+  bonusAdjustment: s.bonusAdjustment ?? 0,
   is_approved: s.is_approved !== undefined ? s.is_approved : (s.status !== 'pending')
 });
 
@@ -337,6 +338,37 @@ async function safeUpsert(tableName: string, payload: any) {
   const knownKeys = detectedColumnKeys[tableName] || [];
   const knownFormat = detectedArrayFormat[tableName] || 'none';
 
+  const performAction = async (filteredPayload: any, format: 'none' | 'postgres' | 'json' | 'comma') => {
+    const formatted = formatPayloadArrays(filteredPayload, format);
+    const id = formatted.id;
+    if (id) {
+      // Check existence first to bypass RLS policies that reject UPSERT (which require INSERT permission)
+      const { data: check, error: selectErr } = await supabase.from(tableName).select('id').eq('id', id);
+      if (!selectErr && check && check.length > 0) {
+        const { data, error: updateErr } = await supabase.from(tableName).update(formatted).eq('id', id);
+        if (!updateErr) {
+          return { data, error: null };
+        }
+        // Fallback to insert if update fails for some policy reasons
+        return await supabase.from(tableName).insert(formatted);
+      } else {
+        // Row not found or select failed (maybe blocked by RLS). Try insert.
+        const { data, error: insertErr } = await supabase.from(tableName).insert(formatted);
+        if (!insertErr) {
+          return { data, error: null };
+        }
+        // If insert failed (e.g., unique key violation or RLS insert block), try update as fallback
+        const { data: upData, error: upErr } = await supabase.from(tableName).update(formatted).eq('id', id);
+        if (!upErr) {
+          return { data: upData, error: null };
+        }
+        return { data: null, error: insertErr };
+      }
+    }
+    const { data, error } = await supabase.from(tableName).insert(formatted);
+    return { data, error };
+  };
+
   if (knownKeys.length > 0) {
     let filteredPayload: any = {};
     Object.keys(payload).forEach(k => {
@@ -344,12 +376,11 @@ async function safeUpsert(tableName: string, payload: any) {
         filteredPayload[k] = payload[k];
       }
     });
-    filteredPayload = formatPayloadArrays(filteredPayload, knownFormat);
-    const { data, error } = await supabase.from(tableName).upsert(filteredPayload);
+    const { data, error } = await performAction(filteredPayload, knownFormat);
     if (!error) {
       return { data, error };
     }
-    console.warn(`Upsert with known schema failed. Resetting schema cache for ${tableName}...`, error);
+    console.warn(`Smart upsert with known schema failed. Resetting schema cache for ${tableName}...`, error);
     detectedColumnKeys[tableName] = [];
   }
 
@@ -361,10 +392,8 @@ async function safeUpsert(tableName: string, payload: any) {
   for (const style of keyStyles) {
     for (const format of arrayFormats) {
       let candidate = getKeysForStyle(payload, style);
-      candidate = formatPayloadArrays(candidate, format);
-
       try {
-        const { data, error } = await supabase.from(tableName).upsert(candidate);
+        const { data, error } = await performAction(candidate, format);
         if (!error) {
           detectedColumnKeys[tableName] = Object.keys(candidate);
           detectedArrayFormat[tableName] = format;
@@ -383,18 +412,19 @@ async function safeUpsert(tableName: string, payload: any) {
 }
 
 let isFirstFetchCompleted = false;
+let isFetchingPaused = false;
 
 const fetchFromSupabase = async () => {
-  if (!isSupabaseConfigured) return;
+  if (!isSupabaseConfigured || isFetchingPaused) return;
   try {
     const { data: dbProfiles } = await supabase.from('profiles').select('*');
     let employeeRates: { [id: string]: number } = {};
     try {
-      const { data: dbEmployees } = await supabase.from('employees').select('id, rate');
+      const { data: dbEmployees } = await supabase.from('employees').select('id, hourly_rate');
       if (dbEmployees) {
         dbEmployees.forEach((emp: any) => {
-          if (emp.id && typeof emp.rate === 'number') {
-            employeeRates[emp.id] = emp.rate;
+          if (emp.id && typeof emp.hourly_rate === 'number') {
+            employeeRates[emp.id] = emp.hourly_rate;
           }
         });
       }
@@ -529,7 +559,20 @@ export async function addStaffToFirestore(member: Staff) {
     try { await safeUpsert('profiles', dbStaffObject(member)); } catch (err) { console.error(err); }
     if (member.hourlyRate !== undefined) {
       try {
-        await supabase.from('employees').upsert({ id: member.id, rate: member.hourlyRate });
+        const id = member.id;
+        const rate = member.hourlyRate;
+        const { data: check, error: selectErr } = await supabase.from('employees').select('id').eq('id', id);
+        if (!selectErr && check && check.length > 0) {
+          const { error: updateErr } = await supabase.from('employees').update({ hourly_rate: rate }).eq('id', id);
+          if (updateErr) {
+            await supabase.from('employees').insert({ id, hourly_rate: rate });
+          }
+        } else {
+          const { error: insertErr } = await supabase.from('employees').insert({ id, hourly_rate: rate });
+          if (insertErr) {
+            await supabase.from('employees').update({ hourly_rate: rate }).eq('id', id);
+          }
+        }
       } catch (err) {
         console.error("Error updating employees table on add:", err);
       }
@@ -545,27 +588,49 @@ export async function updateStaffInFirestore(id: string, updates: Partial<Staff>
     const cur = currentStaffState.find(s => s.id === id);
     if (cur) {
       try {
-        await supabase.from('profiles').update({
-          hourly_rate: cur.hourlyRate,
-          hourlyRate: cur.hourlyRate,
-          status: cur.status,
+        const { error: profileUpdateErr } = await supabase.from('profiles').update({
+          'full-name': cur.name,
+          role: cur.role,
+          bonusAdjustment: cur.bonusAdjustment,
           is_approved: cur.is_approved
         }).eq('id', id);
+        if (profileUpdateErr) {
+          console.error("Supabase direct profiles update rejected:", profileUpdateErr);
+        }
       } catch (err) {
-        console.warn("Direct update on profiles table failed:", err);
+        console.error("Exception in direct profiles update:", err);
       }
-      try { await safeUpsert('profiles', dbStaffObject(cur)); } catch (err) { console.error(err); }
+
+      try {
+        const { error: safeUpsertErr } = await safeUpsert('profiles', dbStaffObject(cur));
+        if (safeUpsertErr) {
+          console.error("Supabase profiles safeUpsert rejected:", safeUpsertErr);
+        }
+      } catch (err) {
+        console.error("Exception in profiles safeUpsert:", err);
+      }
 
       if (cur.hourlyRate !== undefined) {
         try {
-          const { error: upsertErr } = await supabase.from('employees').upsert({ id: id, rate: cur.hourlyRate });
-          if (upsertErr) {
-            console.warn("Upsert to employees table failed, trying fallback update:", upsertErr);
-            const { data: check } = await supabase.from('employees').select('id').eq('id', id);
-            if (check && check.length > 0) {
-              await supabase.from('employees').update({ rate: cur.hourlyRate }).eq('id', id);
-            } else {
-              await supabase.from('employees').insert({ id: id, rate: cur.hourlyRate });
+          const rate = cur.hourlyRate;
+          const { data: check, error: selectErr } = await supabase.from('employees').select('id').eq('id', id);
+          if (!selectErr && check && check.length > 0) {
+            const { error: updateErr } = await supabase.from('employees').update({ hourly_rate: rate }).eq('id', id);
+            if (updateErr) {
+              console.warn("Supabase employees fallback update failed, trying insert:", updateErr);
+              const { error: insErr } = await supabase.from('employees').insert({ id, hourly_rate: rate });
+              if (insErr) {
+                console.error("Supabase employees double-fallback insert failed:", insErr);
+              }
+            }
+          } else {
+            const { error: insertErr } = await supabase.from('employees').insert({ id, hourly_rate: rate });
+            if (insertErr) {
+              console.warn("Supabase employees fallback insert failed, trying update:", insertErr);
+              const { error: updateErr } = await supabase.from('employees').update({ hourly_rate: rate }).eq('id', id);
+              if (updateErr) {
+                console.error("Supabase employees fallback update failed:", updateErr);
+              }
             }
           }
         } catch (err) {
@@ -1037,6 +1102,7 @@ function StaffManager({
   const [phone, setPhone] = useState('');
   const [customHourlyRate, setCustomHourlyRate] = useState('10.00');
   const [selectedColor, setSelectedColor] = useState('#0A84FF');
+  const [localRates, setLocalRates] = useState<Record<string, string>>({});
 
   const [selectedStaffIdForProfile, setSelectedStaffIdForProfile] = useState<string | null>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
@@ -1299,7 +1365,7 @@ function StaffManager({
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <input type="tel" placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} className="bg-white rounded border p-1 text-xs" />
-                        <input type="number" step="0.01" placeholder="Wage rate" value={customHourlyRate} onChange={e => setCustomHourlyRate(e.target.value)} disabled={!isAdminOrGM} className="bg-white rounded border p-1 text-xs" />
+                        <input type="number" step="0.01" min="0" placeholder="Wage rate" value={customHourlyRate} onChange={e => setCustomHourlyRate(e.target.value)} disabled={!isAdminOrGM} className="bg-white rounded border p-1 text-xs" />
                       </div>
                       <div className="flex gap-1.5 items-center">
                         {APPLE_COLOR_PALETTE.map(col => (
@@ -1339,7 +1405,41 @@ function StaffManager({
                                   <td className="p-2 text-slate-500">{emp.role}</td>
                                   <td className="p-2 text-center font-mono">
                                     {isAdminOrGM ? (
-                                      <input type="number" step="0.01" value={emp.hourlyRate ?? 10.00} onClick={e => e.stopPropagation()} onChange={e => onUpdateStaffMember(emp.id, { hourlyRate: parseFloat(e.target.value) || 10.00 })} className="bg-white border rounded w-14 text-center font-bold py-0.5 outline-none border-slate-200 focus:border-amber-400" />
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={localRates[emp.id] !== undefined ? localRates[emp.id] : (emp.hourlyRate ?? 10.00).toFixed(2)}
+                                        onClick={e => e.stopPropagation()}
+                                        onFocus={() => {
+                                          isFetchingPaused = true;
+                                          setLocalRates(prev => ({ ...prev, [emp.id]: (emp.hourlyRate ?? 10.00).toString() }));
+                                        }}
+                                        onChange={e => {
+                                          setLocalRates(prev => ({ ...prev, [emp.id]: e.target.value }));
+                                        }}
+                                        onBlur={async () => {
+                                          isFetchingPaused = false;
+                                          const typedVal = localRates[emp.id];
+                                          if (typedVal !== undefined) {
+                                            const rateVal = parseFloat(typedVal);
+                                            if (!isNaN(rateVal) && rateVal >= 0) {
+                                              await onUpdateStaffMember(emp.id, { hourlyRate: rateVal });
+                                            }
+                                            setLocalRates(prev => {
+                                              const next = { ...prev };
+                                              delete next[emp.id];
+                                              return next;
+                                            });
+                                          }
+                                        }}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') {
+                                            e.currentTarget.blur();
+                                          }
+                                        }}
+                                        className="bg-white border rounded w-14 text-center font-bold py-0.5 outline-none border-slate-200 focus:border-amber-400"
+                                      />
                                     ) : (
                                       <span className="text-slate-400 italic">Locked</span>
                                     )}
@@ -1499,7 +1599,22 @@ function StaffManager({
                             </div>
                             <div>
                               <label className="text-[8px] font-bold text-slate-400 uppercase block">Wage Rate</label>
-                              <input type="number" step="0.01" value={editHourlyRate} onChange={e => setEditHourlyRate(e.target.value)} disabled={!isAdminOrGM} className="w-full bg-white border p-1 rounded text-[10px]" />
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={editHourlyRate}
+                                onFocus={() => { isFetchingPaused = true; }}
+                                onChange={e => setEditHourlyRate(e.target.value)}
+                                onBlur={() => { isFetchingPaused = false; }}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    handleSaveProfileChanges();
+                                  }
+                                }}
+                                disabled={!isAdminOrGM}
+                                className="w-full bg-white border p-1 rounded text-[10px]"
+                              />
                             </div>
                           </div>
 
@@ -1871,9 +1986,9 @@ export default function App() {
         const uId = authData?.user?.id;
         const isOwner = email.toLowerCase() === 'termz50@gmail.com' || email.toLowerCase() === 'hermes.fawo@hotmail.co.uk';
         if (uId && !isOwner) {
-          const { data: profileData } = await supabase.from('profiles').select('status, is_approved').eq('id', uId).single();
+          const { data: profileData } = await supabase.from('profiles').select('is_approved').eq('id', uId).single();
           if (profileData) {
-            if (profileData.status === 'pending' || profileData.is_approved === false) {
+            if (profileData.is_approved === false) {
               await supabase.auth.signOut();
               throw new Error('Your account is awaiting manager approval. Please contact your manager.');
             }
@@ -1910,16 +2025,10 @@ export default function App() {
 
         await safeUpsert('profiles', { 
           id: uId, 
-          name: fullName, 
-          role: initialRole, 
-          color: selectedColor, 
-          phone: 'Unlisted', 
-          hourly_rate: 10.00, 
-          hourlyRate: 10.00, 
-          bonus_adjustment: 0, 
-          bonusAdjustment: 0, 
           email: email.toLowerCase(),
-          status: initialStatus,
+          role: initialRole, 
+          'full-name': fullName, 
+          bonusAdjustment: 0, 
           is_approved: initialApproved
         });
 
