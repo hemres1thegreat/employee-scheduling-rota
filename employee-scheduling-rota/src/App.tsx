@@ -388,11 +388,31 @@ const fetchFromSupabase = async () => {
   if (!isSupabaseConfigured) return;
   try {
     const { data: dbProfiles } = await supabase.from('profiles').select('*');
+    let employeeRates: { [id: string]: number } = {};
+    try {
+      const { data: dbEmployees } = await supabase.from('employees').select('id, rate');
+      if (dbEmployees) {
+        dbEmployees.forEach((emp: any) => {
+          if (emp.id && typeof emp.rate === 'number') {
+            employeeRates[emp.id] = emp.rate;
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("Could not fetch from employees table:", err);
+    }
+
     if (dbProfiles) {
       if (dbProfiles.length > 0) {
         detectedColumnKeys['profiles'] = Object.keys(dbProfiles[0]);
       }
-      const dbStaff = dbProfiles.map(mapDbStaff);
+      const dbStaff = dbProfiles.map(row => {
+        const mapped = mapDbStaff(row);
+        if (employeeRates[mapped.id] !== undefined) {
+          mapped.hourlyRate = employeeRates[mapped.id];
+        }
+        return mapped;
+      });
       const deletedStaffIds = getDeletedStaffIds();
 
       // Filter out database profiles that have been deleted locally
@@ -507,6 +527,13 @@ export async function addStaffToFirestore(member: Staff) {
   notifyStaff();
   if (isSupabaseConfigured) {
     try { await safeUpsert('profiles', dbStaffObject(member)); } catch (err) { console.error(err); }
+    if (member.hourlyRate !== undefined) {
+      try {
+        await supabase.from('employees').upsert({ id: member.id, rate: member.hourlyRate });
+      } catch (err) {
+        console.error("Error updating employees table on add:", err);
+      }
+    }
   }
 }
 
@@ -517,7 +544,34 @@ export async function updateStaffInFirestore(id: string, updates: Partial<Staff>
   if (isSupabaseConfigured) {
     const cur = currentStaffState.find(s => s.id === id);
     if (cur) {
+      try {
+        await supabase.from('profiles').update({
+          hourly_rate: cur.hourlyRate,
+          hourlyRate: cur.hourlyRate,
+          status: cur.status,
+          is_approved: cur.is_approved
+        }).eq('id', id);
+      } catch (err) {
+        console.warn("Direct update on profiles table failed:", err);
+      }
       try { await safeUpsert('profiles', dbStaffObject(cur)); } catch (err) { console.error(err); }
+
+      if (cur.hourlyRate !== undefined) {
+        try {
+          const { error: upsertErr } = await supabase.from('employees').upsert({ id: id, rate: cur.hourlyRate });
+          if (upsertErr) {
+            console.warn("Upsert to employees table failed, trying fallback update:", upsertErr);
+            const { data: check } = await supabase.from('employees').select('id').eq('id', id);
+            if (check && check.length > 0) {
+              await supabase.from('employees').update({ rate: cur.hourlyRate }).eq('id', id);
+            } else {
+              await supabase.from('employees').insert({ id: id, rate: cur.hourlyRate });
+            }
+          }
+        } catch (err) {
+          console.error("Error updating employees table:", err);
+        }
+      }
     }
   }
 }
